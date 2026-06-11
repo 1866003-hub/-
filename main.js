@@ -3,25 +3,42 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // 青空
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-// プレイヤーの初期位置（3x3のブロックの手前に配置）
-camera.position.set(1.5, 1.6, 5); 
+camera.position.set(1.5, 1.6, 5); // プレイヤーの初期位置
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// 【新機能】画面の真ん中にマイクラ風の「＋」マークを表示する（CSSで作成）
+// --- 【バグ対策】スタートボタンと画面中央のドットをCSSで作る ---
+// 画面中央の白い丸（照準）
 const crosshair = document.createElement('div');
 crosshair.style.position = 'absolute';
 crosshair.style.top = '50%';
 crosshair.style.left = '50%';
-crosshair.style.width = '10px';
-crosshair.style.height = '10px';
+crosshair.style.width = '8px';
+crosshair.style.height = '8px';
 crosshair.style.background = 'white';
 crosshair.style.transform = 'translate(-50%, -50%)';
-crosshair.style.borderRadius = '50%'; // 丸い点にします
-crosshair.style.pointerEvents = 'none'; // クリックの邪魔をしない設定
+crosshair.style.borderRadius = '50%';
+crosshair.style.pointerEvents = 'none';
+crosshair.style.display = 'none'; // 最初は隠しておく
 document.body.appendChild(crosshair);
+
+// デバッグ用：スタートボタン
+const startButton = document.createElement('button');
+startButton.innerHTML = '🎮 ゲームをスタートする';
+startButton.style.position = 'absolute';
+startButton.style.top = '50%';
+startButton.style.left = '50%';
+startButton.style.transform = 'translate(-50%, -50%)';
+startButton.style.padding = '15px 30px';
+startButton.style.fontSize = '20px';
+startButton.style.backgroundColor = '#556B2F';
+startButton.style.color = 'white';
+startButton.style.border = 'none';
+startButton.style.cursor = 'pointer';
+startButton.style.borderRadius = '5px';
+document.body.appendChild(startButton);
 
 // 2. ライト
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
@@ -64,14 +81,23 @@ for (let x = 0; x < SIZE; x++) {
     }
 }
 
-// 5. 操作設定（Pointer Lock）
-window.addEventListener('click', () => {
-    if (document.pointerLockElement !== renderer.domElement) {
-        renderer.domElement.requestPointerLock();
+// 5. 【修正】ボタンクリックで確実にPointer Lockを発動させる
+startButton.addEventListener('click', () => {
+    renderer.domElement.requestPointerLock();
+});
+
+// ロック状態の変化を監視してボタンを消し、照準を出す
+document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === renderer.domElement) {
+        startButton.style.display = 'none';
+        crosshair.style.display = 'block';
+    } else {
+        startButton.style.display = 'block';
+        crosshair.style.display = 'none';
     }
 });
 
-// マウス移動で視点を動かす（少し滑らかに調整）
+// マウス移動で視点を動かす
 document.addEventListener('mousemove', (event) => {
     if (document.pointerLockElement === renderer.domElement) {
         camera.rotation.y -= event.movementX * 0.002;
@@ -81,7 +107,7 @@ document.addEventListener('mousemove', (event) => {
 });
 camera.rotation.order = "YXZ";
 
-// キーボード移動の判定（大文字・小文字どちらでも動くように修正）
+// キーボード移動の判定
 const keys = { w: false, a: false, s: false, d: false };
 window.addEventListener('keydown', (e) => { 
     const key = e.key.toLowerCase();
@@ -92,7 +118,7 @@ window.addEventListener('keyup', (e) => {
     if(key in keys) keys[key] = false; 
 });
 
-// 6. 穴掘り処理（画面中央の白い点に連動）
+// 6. 穴掘り処理
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(0, 0); // 常に画面中央
 
@@ -105,12 +131,11 @@ document.addEventListener('mousedown', (e) => {
     if (intersects.length > 0) {
         const hitBlock = intersects[0].object;
         
-        // 手が届く距離（5マス以内）
         if (intersects[0].distance < 5) {
             if (hitBlock.name === "diamond") {
                 scene.remove(hitBlock);
                 document.exitPointerLock(); 
-                alert("💎✨ 相棒！ついに一人称視点でダイヤを掘り当てたぞ！ ✨💎");
+                alert("💎✨ 相棒！一人称視点でダイヤ発掘成功だ！ ✨💎");
             } else {
                 scene.remove(hitBlock);
                 const index = allBlocks.indexOf(hitBlock);
@@ -120,14 +145,13 @@ document.addEventListener('mousedown', (e) => {
     }
 });
 
-// 7. 定期実行（重力と移動）
-const playerSpeed = 0.04;
+// 7. 定期実行（移動ループ）
+const playerSpeed = 0.05;
 
 function animate() {
     requestAnimationFrame(animate);
 
     if (document.pointerLockElement === renderer.domElement) {
-        // カメラの向きに合わせて進む方向を計算
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         forward.y = 0; 
         forward.normalize();
@@ -142,8 +166,7 @@ function animate() {
         if (keys.d) camera.position.addScaledVector(right, playerSpeed);
     }
 
-    // 地面（高さ1.6マス）に固定
-    camera.position.y = 1.6;
+    camera.position.y = 1.6; // プレイヤーの目の高さ固定
 
     renderer.render(scene, camera);
 }
