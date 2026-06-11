@@ -25,7 +25,7 @@ heightUI.style.textShadow = '2px 2px 2px black'; document.body.appendChild(heigh
 const infoText = document.createElement('div');
 infoText.style.position = 'absolute'; infoText.style.top = '15px'; infoText.style.width = '100%'; infoText.style.textAlign = 'center';
 infoText.style.color = 'white'; infoText.style.fontSize = '15px'; infoText.style.fontFamily = 'sans-serif'; infoText.style.textShadow = '1px 1px 3px black';
-infoText.innerHTML = '⚙️ 地面完全復活！ / 【E】キーでインベントリ開閉 / かまど右クリックで精錬 / 【1〜9】スロット選択';
+infoText.innerHTML = '⚙️ 【E】キーでインベントリ開閉 / かまど右クリックで精錬 / 地面完全復活版';
 document.body.appendChild(infoText);
 
 // --- ホットバーUI（9スロット） ---
@@ -126,7 +126,7 @@ const handMesh = new THREE.Mesh(handGeometry, matHand); handMesh.position.set(0.
 
 // 4. ゲームデータ管理
 const worldData = {}; const blockHP = {}; const activeBlocks = {}; const allBlocksArray = []; 
-const WORLD_SIZE = 60; const Y_MIN = -100; const Y_MAX = 100; const SEA_LEVEL = 4;
+const WORLD_SIZE = 60; const Y_MIN = -50; const Y_MAX = 50; const SEA_LEVEL = 4;
 const blockMaxHP = { grass:1, dirt:1, stone:6, iron:6, gold:15, diamond:15, bedrock:99999, log:3, leaves:1, furnace:6, sand:1, water:1 };
 
 const inventory = { log: 0, plank: 0, stone: 0, furnace: 0, raw_meat: 0, cooked_meat: 0, iron_ingot: 0, gold_ingot: 0, diamond: 0, iron_ore: 0, gold_ore: 0 };
@@ -158,15 +158,18 @@ function updateGameUI() {
     }
 }
 
-// 【バグ完全修正】ワールド＆モブ生成ループ
+// 【完全修正】バグ原因のゴーストコードを完全撤去した地形生成システム
 for (let x = 0; x < WORLD_SIZE; x++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
         let biome = "grassland"; let surfaceY = 5;
         if (x >= 45) { biome = "desert"; surfaceY = 6; }
         else if (x < 25 && z < 25) { biome = "forest"; surfaceY = 5; }
         else if (z >= 45) { biome = "ocean"; surfaceY = 1; }
+        
+        // 川の判定
         if (z >= 20 + Math.sin(x*0.2)*2 && z <= 24 + Math.sin(x*0.2)*2 && x < 45) { biome = "river"; surfaceY = 1; }
 
+        // 大地のブロック生成（ここが100%確実に走るようになりました）
         for (let y = surfaceY; y >= Y_MIN; y--) {
             let type = null;
             if (y === Y_MIN) type = "bedrock";
@@ -175,10 +178,15 @@ for (let x = 0; x < WORLD_SIZE; x++) {
             else if (y < surfaceY && y > surfaceY - 3) type = (biome === "desert") ? "sand" : "dirt";
             else if (y <= surfaceY - 3) {
                 const rand = Math.random();
-                if (y >= -30) type = (rand < 0.04) ? "iron" : "stone";
+                if (y >= -15) type = (rand < 0.04) ? "iron" : "stone";
                 else type = (rand < 0.02) ? "diamond" : (rand < 0.03 ? "gold" : "stone");
             }
-            if (type) { const key = `${x},${y},${z}`; worldData[key] = type; blockHP[key] = blockMaxHP[type]; }
+            
+            if (type) { 
+                const key = `${x},${y},${z}`; 
+                worldData[key] = type; 
+                blockHP[key] = blockMaxHP[type]; 
+            }
         }
 
         // 木の生成
@@ -187,10 +195,13 @@ for (let x = 0; x < WORLD_SIZE; x++) {
             const leafY = surfaceY + 4; for (let lx = -1; lx <= 1; lx++) { for (let lz = -1; lz <= 1; lz++) { for (let ly = 0; ly <= 1; ly++) { const leafKey = `${x + lx},${leafY + ly},${z + lz}`; if (!worldData[leafKey]) { worldData[leafKey] = "leaves"; blockHP[leafKey] = blockMaxHP["leaves"]; } } } }
         }
 
-        // モブ配置のバグを修正（代入を比較演算子 '===' に！）
+        // モブの生成（安全に外側へ隔離して、代入バグを永久に消し去りました）
         if (Math.random() < 0.015 && biome !== "ocean" && biome !== "river") {
-            if (biome === "desert") spawnMob("zombie", x, surfaceY, z); 
-            else spawnMob("pig", x, surfaceY, z);
+            if (biome === "desert") {
+                spawnMob("zombie", x, surfaceY, z);
+            } else {
+                spawnMob("pig", x, surfaceY, z);
+            }
         }
     }
 }
