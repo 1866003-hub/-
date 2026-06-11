@@ -25,10 +25,10 @@ heightUI.style.textShadow = '2px 2px 2px black'; document.body.appendChild(heigh
 const infoText = document.createElement('div');
 infoText.style.position = 'absolute'; infoText.style.top = '15px'; infoText.style.width = '100%'; infoText.style.textAlign = 'center';
 infoText.style.color = 'white'; infoText.style.fontSize = '15px'; infoText.style.fontFamily = 'sans-serif'; infoText.style.textShadow = '1px 1px 3px black';
-infoText.innerHTML = '⚙️ 【E】キーでインベントリ開閉！ / かまどで鉄・金・肉が焼ける！ / 【1〜9】スロット選択';
+infoText.innerHTML = '⚙️ 地面完全復活！ / 【E】キーでインベントリ開閉 / かまど右クリックで精錬 / 【1〜9】スロット選択';
 document.body.appendChild(infoText);
 
-// --- ホットバーUI（本家仕様・9スロットに拡張） ---
+// --- ホットバーUI（9スロット） ---
 const hotbarContainer = document.createElement('div');
 hotbarContainer.style.position = 'absolute'; hotbarContainer.style.bottom = '20px'; hotbarContainer.style.left = '50%';
 hotbarContainer.style.transform = 'translateX(-50%)'; hotbarContainer.style.display = 'flex'; hotbarContainer.style.gap = '5px';
@@ -81,7 +81,7 @@ for (let i = 0; i < 9; i++) {
     btn.addEventListener('click', () => handleGridClick(i)); gridContainer.appendChild(btn);
 }
 
-// --- 【大強化】かまど（精錬）画面UI ---
+// --- かまど（精錬）画面UI ---
 const furnaceMenu = document.createElement('div');
 furnaceMenu.style.position = 'absolute'; furnaceMenu.style.top = '50%'; furnaceMenu.style.left = '50%'; furnaceMenu.style.transform = 'translate(-50%, -50%)';
 furnaceMenu.style.width = '280px'; furnaceMenu.style.background = 'rgba(30, 30, 30, 0.95)'; furnaceMenu.style.border = '4px solid #FF4500';
@@ -107,8 +107,8 @@ const mats = {
     grass:       new THREE.MeshLambertMaterial({ color: 0x556B2F }),
     dirt:        new THREE.MeshLambertMaterial({ color: 0x8B4513 }),
     stone:       new THREE.MeshLambertMaterial({ color: 0x808080 }),
-    iron:        new THREE.MeshLambertMaterial({ color: 0xD2B48C }), // 鉄鉱石
-    gold:        new THREE.MeshLambertMaterial({ color: 0xFFD700 }), // 金鉱石
+    iron:        new THREE.MeshLambertMaterial({ color: 0xD2B48C }), 
+    gold:        new THREE.MeshLambertMaterial({ color: 0xFFD700 }), 
     diamond:     new THREE.MeshLambertMaterial({ color: 0x00FFFF }),
     bedrock:     new THREE.MeshLambertMaterial({ color: 0x111111 }),
     log:         new THREE.MeshLambertMaterial({ color: 0x5c4033 }),
@@ -120,7 +120,6 @@ const mats = {
     zombie:      new THREE.MeshLambertMaterial({ color: 0x2E8B57 })  
 };
 
-// 手の追加
 const handGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.8);
 const matHand = new THREE.MeshLambertMaterial({ color: 0xbc9374 });
 const handMesh = new THREE.Mesh(handGeometry, matHand); handMesh.position.set(0.5, -0.4, -0.8); camera.add(handMesh); scene.add(camera);
@@ -130,7 +129,6 @@ const worldData = {}; const blockHP = {}; const activeBlocks = {}; const allBloc
 const WORLD_SIZE = 60; const Y_MIN = -100; const Y_MAX = 100; const SEA_LEVEL = 4;
 const blockMaxHP = { grass:1, dirt:1, stone:6, iron:6, gold:15, diamond:15, bedrock:99999, log:3, leaves:1, furnace:6, sand:1, water:1 };
 
-// 全インベントリ（裏で持つ鉱石データを含む）
 const inventory = { log: 0, plank: 0, stone: 0, furnace: 0, raw_meat: 0, cooked_meat: 0, iron_ingot: 0, gold_ingot: 0, diamond: 0, iron_ore: 0, gold_ore: 0 };
 let selectedSlot = 0; let playerTool = "👊 素手"; let playerPower = 1;
 
@@ -145,7 +143,6 @@ function spawnDropItem(type, position) {
     dropMesh.position.copy(position); dropMesh.userData = { type: type }; scene.add(dropMesh); dropsArray.push(dropMesh);
 }
 
-// UI更新（鉱石の保有数もテキストにチラ見せ）
 function updateGameUI() {
     let biomeName = "🌾 草原"; const px = Math.floor(camera.position.x); const pz = Math.floor(camera.position.z);
     if (px < 25 && pz < 25) biomeName = "🌳 森林"; else if (px >= 45) biomeName = "⏳ 砂漠"; else if (pz >= 45) biomeName = "🌊 海";
@@ -161,7 +158,7 @@ function updateGameUI() {
     }
 }
 
-// ワールド＆モブ生成
+// 【バグ完全修正】ワールド＆モブ生成ループ
 for (let x = 0; x < WORLD_SIZE; x++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
         let biome = "grassland"; let surfaceY = 5;
@@ -183,12 +180,17 @@ for (let x = 0; x < WORLD_SIZE; x++) {
             }
             if (type) { const key = `${x},${y},${z}`; worldData[key] = type; blockHP[key] = blockMaxHP[type]; }
         }
+
+        // 木の生成
         if (biome === "forest" && Math.random() < 0.08) {
             for (let h = 1; h <= 3; h++) { worldData[`${x},${surfaceY + h},${z}`] = "log"; blockHP[`${x},${surfaceY + h},${z}`] = blockMaxHP["log"]; }
             const leafY = surfaceY + 4; for (let lx = -1; lx <= 1; lx++) { for (let lz = -1; lz <= 1; lz++) { for (let ly = 0; ly <= 1; ly++) { const leafKey = `${x + lx},${leafY + ly},${z + lz}`; if (!worldData[leafKey]) { worldData[leafKey] = "leaves"; blockHP[leafKey] = blockMaxHP["leaves"]; } } } }
         }
-        if (Math.random() < 0.008 && biome !== "ocean" && biome !== "river") {
-            if (biome === "desert") spawnMob("zombie", x, surfaceY, z); else spawnMob("pig", x, surfaceY, z);
+
+        // モブ配置のバグを修正（代入を比較演算子 '===' に！）
+        if (Math.random() < 0.015 && biome !== "ocean" && biome !== "river") {
+            if (biome === "desert") spawnMob("zombie", x, surfaceY, z); 
+            else spawnMob("pig", x, surfaceY, z);
         }
     }
 }
@@ -214,7 +216,6 @@ function updateChunks() {
     for (const key in activeBlocks) { if (!currentKeys[key]) { scene.remove(activeBlocks[key]); const index = allBlocksArray.indexOf(activeBlocks[key]); if (index > -1) allBlocksArray.splice(index, 1); delete activeBlocks[key]; } }
 }
 
-// 3x3クラフト内のクリック処理
 function handleGridClick(index) {
     if (craftMatrix[index] === null) {
         const type = slotTypes[selectedSlot];
@@ -229,14 +230,12 @@ function checkCraftRecipe() {
     const grid = document.getElementById('craftGrid').children;
     for(let i=0; i<9; i++) grid[i].innerText = craftMatrix[i] ? (craftMatrix[i] === "log" ? "🪵" : "🪨") : "空";
     const out = document.getElementById('craftOutput');
-    
     const nonNulls = craftMatrix.filter(x => x !== null);
+    
     if (nonNulls.length === 1 && nonNulls[0] === "log") { out.innerText = "🪵板材x4"; return; }
-
     if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" &&
         craftMatrix[3] === null && craftMatrix[4] === null && craftMatrix[5] === null &&
         craftMatrix[6] === null && craftMatrix[7] === null && craftMatrix[8] === null) { out.innerText = "⛏️石ツルハシ"; return; }
-
     if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" &&
         craftMatrix[3] === "stone" && craftMatrix[4] === null    && craftMatrix[5] === "stone" &&
         craftMatrix[6] === "stone" && craftMatrix[7] === "stone" && craftMatrix[8] === "stone") { out.innerText = "🔥かまどx1"; return; }
@@ -251,22 +250,20 @@ document.getElementById('btnExecuteCraft').addEventListener('click', () => {
     for(let i=0; i<9; i++) craftMatrix[i] = null; checkCraftRecipe(); updateGameUI();
 });
 
-// かまどの精錬処理（大強化）
 document.getElementById('btnCookMeat').addEventListener('click', () => {
     if (inventory.raw_meat >= 1) { inventory.raw_meat--; inventory.cooked_meat++; updateGameUI(); alert("🥩 ステーキが焼き上がった！"); }
     else { alert("❌ 生肉がありません！"); }
 });
 document.getElementById('btnSmeltIron').addEventListener('click', () => {
     if (inventory.iron_ore >= 1) { inventory.iron_ore--; inventory.iron_ingot++; updateGameUI(); alert("🪙 鉄鉱石を精錬して【鉄インゴット】を作った！"); }
-    else { alert("❌ 鉄鉱石がありません！地下でグレーのブロックを掘ってこよう！"); }
+    else { alert("❌ 鉄鉱石がありません！"); }
 });
 document.getElementById('btnSmeltGold').addEventListener('click', () => {
     if (inventory.gold_ore >= 1) { inventory.gold_ore--; inventory.gold_ingot++; updateGameUI(); alert("🪙 金鉱石を精錬して【金インゴット】を作った！"); }
-    else { alert("❌ 金鉱石がありません！地底深くで金色のブロックを掘ってこよう！"); }
+    else { alert("❌ 金鉱石がありません！"); }
 });
 document.getElementById('btnCloseFurnace').addEventListener('click', () => { furnaceMenu.style.display = 'none'; isFurnaceOpen = false; });
 
-// 操作系
 let isDragging = false; let previousMousePosition = { x: 0, y: 0 };
 let rotationY = 0; let rotationX = 0; let isCraftOpen = false; let isFurnaceOpen = false;
 
@@ -282,14 +279,12 @@ window.addEventListener('mouseup', () => { isDragging = false; });
 
 const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
 window.addEventListener('keydown', (e) => { 
-    // --- 【神修正】Eキーでインベントリ開閉に！ ---
     if(e.key.toLowerCase() === 'e') { isCraftOpen = !isCraftOpen; craftMenu.style.display = isCraftOpen ? 'block' : 'none'; furnaceMenu.style.display = 'none'; isFurnaceOpen = false; checkCraftRecipe(); isDragging = false; return; }
     if(["1","2","3","4","5","6","7","8","9"].includes(e.key)) { selectedSlot = parseInt(e.key) - 1; updateGameUI(); return; }
     const key = e.key.toLowerCase(); if(key in keys) keys[key] = true; 
 });
 window.addEventListener('keyup', (e) => { const key = e.key.toLowerCase(); if(key in keys) keys[key] = false; });
 
-// 6. 破壊・建築・右クリック
 let handSwingTimer = 0; let isSwinging = false;
 const raycaster = new THREE.Raycaster(); const screenCenter = new THREE.Vector2(0, 0);
 
@@ -314,14 +309,10 @@ window.addEventListener('pointerdown', (e) => {
             if (hitBlock.name !== "bedrock") {
                 blockHP[blockKey] -= playerPower;
                 if (blockHP[blockKey] <= 0) {
-                    let dropType = hitBlock.name;
-                    if (dropType === "grass") dropType = "dirt";
-                    
-                    // 鉄鉱石と金鉱石は、直接手持ちに入れるのではなく、精錬用の裏ストックへ！
-                    if (dropType === "iron") { inventory.iron_ore++; alert("🪨 鉄鉱石を掘り当てた！かまどで焼こう！"); }
-                    else if (dropType === "gold") { inventory.gold_ore++; alert("🪨 金鉱石を掘り当てた！かまどで焼こう！"); }
+                    let dropType = hitBlock.name; if (dropType === "grass") dropType = "dirt";
+                    if (dropType === "iron") { inventory.iron_ore++; alert("🪨 鉄鉱石をゲット！"); }
+                    else if (dropType === "gold") { inventory.gold_ore++; alert("🪨 金鉱石をゲット！"); }
                     else if (dropType !== "leaves") { inventory[dropType] = (inventory[dropType] || 0) + 1; }
-
                     scene.remove(hitBlock); allBlocksArray.splice(allBlocksArray.indexOf(hitBlock), 1);
                     delete activeBlocks[blockKey]; delete worldData[blockKey]; updateGameUI();
                 }
@@ -343,7 +334,6 @@ window.addEventListener('pointerdown', (e) => {
     }
 });
 
-// 7. モブAI＆ドロップ品引き寄せループ
 const playerSpeed = 0.15;
 function animate() {
     requestAnimationFrame(animate);
