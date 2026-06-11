@@ -3,15 +3,15 @@
 // ==========================================
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // 快晴の空
-scene.fog = new THREE.FogExp2(0x87CEEB, 0.03); // エモい空気感を出す霧効果
+scene.fog = new THREE.FogExp2(0x87CEEB, 0.03); // エモい霧効果
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(30, 8, 30); // 安全な地上からスタート
+camera.position.set(30, 8, 30); // しっかり着地できる高さからスタート
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true; // 🗲 影の描画を有効化！
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// 【軽量化】フリーズの原因となるシャドウマップ（影のリアルタイム計算）を無効化
+renderer.shadowMap.enabled = false; 
 document.body.appendChild(renderer.domElement);
 
 // 画面中央の「＋」照準マーク
@@ -34,51 +34,42 @@ infoText.innerHTML = '⚙️ 【E】：クラフト / かまど：右クリッ�
 document.body.appendChild(infoText);
 
 // ==========================================
-// 2. 🗲 秘密兵器：プログラムによるマイクラ風テクスチャ自動生成
+// 2. プログラムによるマイクラ風テクスチャ自動生成
 // ==========================================
 function createMinecraftTexture(baseColor, noiseFactor, patternType) {
     const canvas = document.createElement('canvas');
-    canvas.width = 16; canvas.height = 16; // 16x16のドット絵サイズ
+    canvas.width = 16; canvas.height = 16;
     const ctx = canvas.getContext('2d');
     
-    // ベース色をパース
     ctx.fillStyle = baseColor;
     ctx.fillRect(0, 0, 16, 16);
     
-    // 1マスずつノイズを入れてザラザラにする
     for (let x = 0; x < 16; x++) {
         for (let y = 0; y < 16; y++) {
             let n = (Math.random() - 0.5) * noiseFactor;
             
-            // 特殊パターン模様の付与
-            if (patternType === 'grass' && y > 4 && y < 12) n -= 15; // 草のギザギザ
-            if (patternType === 'log' && (x === 0 || x === 15 || y === 0 || y === 15)) n -= 30; // 木の輪郭
-            if (patternType === 'plank' && y % 4 === 0) n -= 40; // 木目の線
-            if (patternType === 'stone' && (x + y) % 5 === 0) n -= 20; // 石のひび割れ
+            if (patternType === 'grass' && y > 4 && y < 12) n -= 15; 
+            if (patternType === 'log' && (x === 0 || x === 15 || y === 0 || y === 15)) n -= 30; 
+            if (patternType === 'plank' && y % 4 === 0) n -= 40; 
+            if (patternType === 'stone' && (x + y) % 5 === 0) n -= 20; 
             
             ctx.fillStyle = `rgba(${n > 0 ? 255 : 0}, ${n > 0 ? 255 : 0}, ${n > 0 ? 255 : 0}, ${Math.abs(n) / 255})`;
             ctx.fillRect(x, y, 1, 1);
         }
     }
     const texture = new THREE.CanvasTexture(canvas);
-    texture.magFilter = THREE.NearestFilter; // ドット絵をクッキリハッキリさせる魔法の設定
+    texture.magFilter = THREE.NearestFilter; 
     texture.minFilter = THREE.NearestFilter;
     return texture;
 }
 
 // ==========================================
-// 3. ライティング ＆ リアルマテリアル設定
+// 3. ライティング設定（影なしでもクッキリ見える設定）
 // ==========================================
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.7); 
-dirLight.position.set(20, 40, 20); 
-dirLight.castShadow = true; // 影を落とす
-dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
-dirLight.shadow.camera.near = 0.5; dirLight.shadow.camera.far = 150;
-const d = 40; dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d; dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
-scene.add(dirLight);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.75); scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.45); dirLight.position.set(25, 45, 15); scene.add(dirLight);
 
-// マテリアルに自動生成したドット絵テクスチャをドッキング
+// 【修正バグ】砂（sand）を正しくテクスチャ化し、エラーを完全撲滅！
 const mats = {
     grass:   new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#5c8e32', 40, 'grass'), roughness: 0.9 }),
     dirt:    new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#866043', 30, 'dirt'), roughness: 0.9 }),
@@ -90,9 +81,8 @@ const mats = {
     log:     new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#6b5336', 40, 'log'), roughness: 0.9 }),
     leaves:  new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#3b6622', 60, 'none'), roughness: 0.9, transparent: true, alphaTest: 0.5 }),
     furnace: new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#4a4a4a', 50, 'log'), roughness: 0.8 }),
-    sand:    new THREE.MeshStandardMaterial('#dbcd9f'),
+    sand:    new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#dbcd9f', 15, 'none'), roughness: 0.9 }), 
     water:   new THREE.MeshStandardMaterial({ color: 0x1E90FF, transparent: true, opacity: 0.6, roughness: 0.2 }),
-    // モブ用スキン
     pig:     createMinecraftTexture('#f0a7b4', 20, 'none'),
     zombie:  createMinecraftTexture('#3b7a57', 30, 'none')
 };
@@ -108,7 +98,7 @@ const handMesh = new THREE.Mesh(handGeometry, matHand); handMesh.position.set(0.
 let velocityY = 0; const GRAVITY = 0.012; const JUMP_FORCE = 0.22; let isGrounded = false; const PLAYER_HEIGHT = 1.6;
 
 // ==========================================
-// 4. ホットバー ＆ インベントリ
+// 4. ホットバー ＆ インベントリ ＆ UI
 // ==========================================
 const hotbarContainer = document.createElement('div');
 hotbarContainer.style.position = 'absolute'; hotbarContainer.style.bottom = '20px'; hotbarContainer.style.left = '50%';
@@ -161,24 +151,22 @@ let selectedSlot = 0; let playerTool = "👊 素手"; let playerPower = 1;
 const mobsArray = []; const dropsArray = [];
 
 // ==========================================
-// 5. 🗲 モブのリアルな立体化（頭・体・足パーツ分割＋影対応）
+// 5. モブのリアルな立体化（頭・体・足パーツ分割）
 // ==========================================
 function spawnMob(type, x, y, z) {
-    const mobGroup = new THREE.Group(); // 各パーツをまとめるグループ
+    const mobGroup = new THREE.Group(); 
     const matMob = new THREE.MeshStandardMaterial({ map: mats[type], roughness: 0.9 });
 
     // 体
     const bodyGeo = type === 'pig' ? new THREE.BoxGeometry(0.6, 0.6, 0.9) : new THREE.BoxGeometry(0.6, 0.8, 0.4);
     const bodyMesh = new THREE.Mesh(bodyGeo, matMob);
     bodyMesh.position.y = type === 'pig' ? 0.5 : 0.7;
-    bodyMesh.castShadow = true; bodyMesh.receiveShadow = true;
     mobGroup.add(bodyMesh);
 
     // 頭
     const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
     const headMesh = new THREE.Mesh(headGeo, matMob);
     headMesh.position.set(0, type === 'pig' ? 0.7 : 1.2, type === 'pig' ? -0.5 : 0);
-    headMesh.castShadow = true; headMesh.receiveShadow = true;
     mobGroup.add(headMesh);
 
     // 4本の足
@@ -186,12 +174,11 @@ function spawnMob(type, x, y, z) {
     const legs = [];
     const positions = type === 'pig' 
         ? [[-0.2, 0.2, 0.3], [0.2, 0.2, 0.3], [-0.2, 0.2, -0.3], [0.2, 0.2, -0.3]]
-        : [[-0.18, 0.2, 0], [0.18, 0.2, 0], [-0.18, 0.2, 0], [0.18, 0.2, 0]]; // ゾンビは2本でも4本でも制御できるよう4つ定義
+        : [[-0.18, 0.2, 0], [0.18, 0.2, 0], [-0.18, 0.2, 0], [0.18, 0.2, 0]]; 
 
     for(let i=0; i<4; i++) {
         const leg = new THREE.Mesh(legGeo, matMob);
         leg.position.set(positions[i][0], positions[i][1], positions[i][2]);
-        leg.castShadow = true; leg.receiveShadow = true;
         mobGroup.add(leg); legs.push(leg);
     }
 
@@ -203,7 +190,7 @@ function spawnMob(type, x, y, z) {
 function spawnDropItem(type, position) {
     const dropGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
     const dropMesh = new THREE.Mesh(dropGeo, mats[type]);
-    dropMesh.position.copy(position); dropMesh.castShadow = true; dropMesh.userData = { type: type };
+    dropMesh.position.copy(position); dropMesh.userData = { type: type };
     scene.add(dropMesh); dropsArray.push(dropMesh);
 }
 
@@ -221,7 +208,7 @@ function updateGameUI() {
 }
 
 // ==========================================
-// 6. 地形データ生成（影対応）
+// 6. 地形データ生成
 // ==========================================
 for (let x = 0; x < WORLD_SIZE; x++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
@@ -264,7 +251,6 @@ for (let x = 0; x < WORLD_SIZE; x++) {
     }
 }
 
-// チャンクアップデート（影設定を付与）
 function updateChunks() {
     const px = Math.floor(camera.position.x); const py = Math.floor(camera.position.y); const pz = Math.floor(camera.position.z);
     const r = 22; const currentKeys = {};
@@ -278,8 +264,6 @@ function updateChunks() {
                     if (!activeBlocks[key]) {
                         const block = new THREE.Mesh(geometry, mats[worldData[key]]);
                         block.position.set(x, y, z); block.name = worldData[key]; block.userData = { key: key };
-                        block.castShadow = worldData[key] !== "water"; // 水以外は影を作る
-                        block.receiveShadow = true; // すべてのブロックは影を受ける
                         scene.add(block); activeBlocks[key] = block; allBlocksArray.push(block);
                     }
                 }
@@ -296,7 +280,7 @@ function updateChunks() {
     }
 }
 
-// クラフトロジック
+// クラフト
 function handleGridClick(index) {
     if (craftMatrix[index] === null) {
         const type = slotTypes[selectedSlot];
@@ -325,7 +309,7 @@ document.getElementById('btnSmeltIron').addEventListener('click', () => { if (in
 document.getElementById('btnSmeltGold').addEventListener('click', () => { if (inventory.stone >= 1) { inventory.stone--; inventory.gold_ingot++; updateGameUI(); alert("🪙 金インゴット精錬！"); } });
 document.getElementById('btnCloseFurnace').addEventListener('click', () => { furnaceMenu.style.display = 'none'; isFurnaceOpen = false; });
 
-// 操作系
+// 操作
 let isDragging = false; let previousMousePosition = { x: 0, y: 0 }; let rotationY = 0; let rotationX = 0; let isCraftOpen = false; let isFurnaceOpen = false;
 window.addEventListener('mousedown', (e) => { if(isCraftOpen || isFurnaceOpen) return; isDragging = true; previousMousePosition = { x: e.clientX, y: e.clientY }; });
 window.addEventListener('mousemove', (e) => {
@@ -345,5 +329,107 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => { if(e.key === ' ' || e.code === 'Space') return; const key = e.key.toLowerCase(); if(key in keys) keys[key] = false; });
 
-// 破壊・設置・攻撃
-let isSwinging = false; let handSwingTimer = 0; const raycaster = new THREE.Raycaster(); const screenCenter = new THREE.Vector2(0
+// 破壊・設置
+let isSwinging = false; let handSwingTimer = 0; const raycaster = new THREE.Raycaster(); const screenCenter = new THREE.Vector2(0, 0);
+window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+window.addEventListener('pointerdown', (e) => {
+    if(isCraftOpen || isFurnaceOpen) return;
+    isSwinging = true; handSwingTimer = 0; raycaster.setFromCamera(screenCenter, camera);
+
+    const mobIntersects = raycaster.intersectObjects(mobsArray, true); 
+    if (mobIntersects.length > 0 && mobIntersects[0].distance <= 5 && e.button === 0) {
+        let rootMob = mobIntersects[0].object; while(rootMob.parent && rootMob.parent.type !== "Scene") { rootMob = rootMob.parent; }
+        rootMob.userData.hp -= 1; rootMob.position.y += 0.5;
+        if (rootMob.userData.hp <= 0) { if (rootMob.userData.type === "pig") spawnDropItem("raw_meat", rootMob.position); scene.remove(rootMob); mobsArray.splice(mobsArray.indexOf(rootMob), 1); }
+        return;
+    }
+
+    const intersects = raycaster.intersectObjects(allBlocksArray);
+    if (intersects.length > 0 && intersects[0].distance <= 5) {
+        const hit = intersects[0]; const hitBlock = hit.object; const blockKey = hitBlock.userData.key;
+        if (e.button === 0) {
+            if (hitBlock.name !== "bedrock" && hitBlock.name !== "water") {
+                blockHP[blockKey] -= playerPower;
+                if (blockHP[blockKey] <= 0) {
+                    let dropType = hitBlock.name; if (dropType === "grass") dropType = "dirt";
+                    inventory[dropType] = (inventory[dropType] || 0) + 1;
+                    scene.remove(hitBlock); allBlocksArray.splice(allBlocksArray.indexOf(hitBlock), 1);
+                    delete activeBlocks[blockKey]; delete worldData[blockKey]; updateGameUI();
+                }
+            }
+        } else if (e.button === 2) {
+            if (hitBlock.name === "furnace") { isFurnaceOpen = true; furnaceMenu.style.display = 'block'; isDragging = false; }
+            else {
+                const currentBuildType = slotTypes[selectedSlot];
+                if (inventory[currentBuildType] > 0) {
+                    const normal = hit.face.normal; const newPos = hitBlock.position.clone().add(normal); const newKey = `${newPos.x},${newPos.y},${newPos.z}`;
+                    if (newPos.y <= Y_MAX && newPos.y >= Y_MIN) { worldData[newKey] = currentBuildType; blockHP[newKey] = blockMaxHP[currentBuildType]; inventory[currentBuildType]--; updateChunks(); updateGameUI(); }
+                }
+            }
+        }
+    }
+});
+
+// ==========================================
+// 7. ゲームメインループ（重力・トコトコ歩行）
+// ==========================================
+const playerSpeed = 0.12;
+function animate() {
+    requestAnimationFrame(animate);
+    
+    if (isSwinging) {
+        handSwingTimer += 0.2; handMesh.position.z = -0.8 + Math.sin(handSwingTimer) * 0.15; handMesh.position.y = -0.4 + Math.cos(handSwingTimer) * 0.05;
+        if (handSwingTimer > Math.PI) { isSwinging = false; handMesh.position.set(0.5, -0.4, -0.8); }
+    }
+    
+    if (!isCraftOpen && !isFurnaceOpen) {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
+        if (keys.w) camera.position.addScaledVector(forward, playerSpeed); if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
+        if (keys.a) camera.position.addScaledVector(right, -playerSpeed); if (keys.d) camera.position.addScaledVector(right, playerSpeed);
+    }
+
+    // 重力・接地処理
+    velocityY -= GRAVITY; camera.position.y += velocityY;
+    const pX = Math.floor(camera.position.x + 0.5); const pZ = Math.floor(camera.position.z + 0.5);
+    let highestGroundY = -999;
+    for (let checkY = Math.floor(camera.position.y); checkY >= Y_MIN; checkY--) { if (worldData[`${pX},${checkY},${pZ}`] && worldData[`${pX},${checkY},${pZ}`] !== "water") { highestGroundY = checkY; break; } }
+    const groundThreshold = highestGroundY + 0.5 + PLAYER_HEIGHT;
+    if (camera.position.y <= groundThreshold) { camera.position.y = groundThreshold; velocityY = 0; isGrounded = true; } else { isGrounded = false; }
+    if (camera.position.y < Y_MIN - 5) { camera.position.set(30, 8, 30); velocityY = 0; }
+
+    // モブ移動＆足振りアニメ
+    mobsArray.forEach(mob => {
+        mob.userData.walkTimer += 0.05;
+        const speedFactor = mob.userData.type === 'pig' ? 0.03 : 0.02;
+        
+        if (mob.userData.type === "pig") {
+            if (mob.userData.walkTimer > 5) { mob.userData.walkTimer = 0; mob.userData.dirX = (Math.random() - 0.5) * speedFactor; mob.userData.dirZ = (Math.random() - 0.5) * speedFactor; }
+            mob.position.x += mob.userData.dirX; mob.position.z += mob.userData.dirZ;
+            if(mob.userData.dirX !== 0 || mob.userData.dirZ !== 0) mob.rotation.y = Math.atan2(mob.userData.dirX, mob.userData.dirZ);
+        } else if (mob.userData.type === "zombie") {
+            const dx = camera.position.x - mob.position.x; const dz = camera.position.z - mob.position.z; const dist = Math.sqrt(dx*dx + dz*dz);
+            if (dist < 15) { mob.position.x += (dx / dist) * speedFactor; mob.position.z += (dz / dist) * speedFactor; mob.rotation.y = Math.atan2(dx, dz); }
+        }
+        
+        const time = Date.now() * 0.01;
+        if(mob.userData.legs) {
+            mob.userData.legs[0].rotation.x = Math.sin(time) * 0.6; mob.userData.legs[1].rotation.x = -Math.sin(time) * 0.6;
+            mob.userData.legs[2].rotation.x = -Math.sin(time) * 0.6; mob.userData.legs[3].rotation.x = Math.sin(time) * 0.6;
+        }
+
+        const mX = Math.floor(mob.position.x + 0.5); const mZ = Math.floor(mob.position.z + 0.5);
+        let mobGroundY = 5; for(let my = 10; my >= Y_MIN; my--) { if(worldData[`${mX},${my},${mZ}`]) { mobGroundY = my; break; } }
+        mob.position.y = mobGroundY + 0.5;
+    });
+
+    for (let i = dropsArray.length - 1; i >= 0; i--) {
+        const drop = dropsArray[i]; const dx = camera.position.x - drop.position.x; const dy = camera.position.y - drop.position.y; const dz = camera.position.z - drop.position.z; const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        if (dist < 4) { drop.position.x += (dx / dist) * 0.15; drop.position.y += (dy / dist) * 0.15; drop.position.z += (dz / dist) * 0.15; if (dist < 0.8) { inventory[drop.userData.type]++; scene.remove(drop); dropsArray.splice(i, 1); updateGameUI(); } }
+    }
+
+    updateChunks(); updateGameUI(); renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
