@@ -3,13 +3,15 @@
 // ==========================================
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // 快晴の空
+scene.fog = new THREE.FogExp2(0x87CEEB, 0.03); // エモい空気感を出す霧効果
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-// 【修正】埋まり防止のため、最初は地上（Y=25）の安全圏から見下ろす位置に配置
-camera.position.set(30, 25, 30); 
+camera.position.set(30, 8, 30); // 安全な地上からスタート
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true; // 🗲 影の描画を有効化！
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // 画面中央の「＋」照準マーク
@@ -19,21 +21,94 @@ crosshair.style.width = '10px'; crosshair.style.height = '10px'; crosshair.style
 crosshair.style.transform = 'translate(-50%, -50%)'; crosshair.style.borderRadius = '50%'; crosshair.style.pointerEvents = 'none';
 document.body.appendChild(crosshair);
 
-// 高度・装備表示UI
+// UI
 const heightUI = document.createElement('div');
 heightUI.style.position = 'absolute'; heightUI.style.bottom = '85px'; heightUI.style.left = '20px';
 heightUI.style.color = '#00FF00'; heightUI.style.fontSize = '18px'; heightUI.style.fontFamily = 'monospace';
 heightUI.style.textShadow = '2px 2px 2px black'; document.body.appendChild(heightUI);
 
-// 操作説明アナウンス
 const infoText = document.createElement('div');
 infoText.style.position = 'absolute'; infoText.style.top = '15px'; infoText.style.width = '100%'; infoText.style.textAlign = 'center';
 infoText.style.color = 'white'; infoText.style.fontSize = '15px'; infoText.style.fontFamily = 'sans-serif'; infoText.style.textShadow = '1px 1px 3px black';
-infoText.innerHTML = '⚙️ 【E】キー：クラフト開閉 / かまど：右クリック / 【W,A,S,D】：移動 / 【Q,E】：浮遊・下降';
+infoText.innerHTML = '⚙️ 【E】：クラフト / かまど：右クリック / 【W,A,S,D】：移動 / 【Space】：ジャンプ';
 document.body.appendChild(infoText);
 
 // ==========================================
-// 2. ホットバーUI（インベントリと連動）
+// 2. 🗲 秘密兵器：プログラムによるマイクラ風テクスチャ自動生成
+// ==========================================
+function createMinecraftTexture(baseColor, noiseFactor, patternType) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16; canvas.height = 16; // 16x16のドット絵サイズ
+    const ctx = canvas.getContext('2d');
+    
+    // ベース色をパース
+    ctx.fillStyle = baseColor;
+    ctx.fillRect(0, 0, 16, 16);
+    
+    // 1マスずつノイズを入れてザラザラにする
+    for (let x = 0; x < 16; x++) {
+        for (let y = 0; y < 16; y++) {
+            let n = (Math.random() - 0.5) * noiseFactor;
+            
+            // 特殊パターン模様の付与
+            if (patternType === 'grass' && y > 4 && y < 12) n -= 15; // 草のギザギザ
+            if (patternType === 'log' && (x === 0 || x === 15 || y === 0 || y === 15)) n -= 30; // 木の輪郭
+            if (patternType === 'plank' && y % 4 === 0) n -= 40; // 木目の線
+            if (patternType === 'stone' && (x + y) % 5 === 0) n -= 20; // 石のひび割れ
+            
+            ctx.fillStyle = `rgba(${n > 0 ? 255 : 0}, ${n > 0 ? 255 : 0}, ${n > 0 ? 255 : 0}, ${Math.abs(n) / 255})`;
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter; // ドット絵をクッキリハッキリさせる魔法の設定
+    texture.minFilter = THREE.NearestFilter;
+    return texture;
+}
+
+// ==========================================
+// 3. ライティング ＆ リアルマテリアル設定
+// ==========================================
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.7); 
+dirLight.position.set(20, 40, 20); 
+dirLight.castShadow = true; // 影を落とす
+dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
+dirLight.shadow.camera.near = 0.5; dirLight.shadow.camera.far = 150;
+const d = 40; dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d; dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
+scene.add(dirLight);
+
+// マテリアルに自動生成したドット絵テクスチャをドッキング
+const mats = {
+    grass:   new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#5c8e32', 40, 'grass'), roughness: 0.9 }),
+    dirt:    new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#866043', 30, 'dirt'), roughness: 0.9 }),
+    stone:   new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#737373', 40, 'stone'), roughness: 0.9 }),
+    iron:    new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#d8af93', 50, 'stone'), roughness: 0.8 }),
+    gold:    new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#fcee4b', 60, 'stone'), roughness: 0.6 }),
+    diamond: new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#4dedf0', 60, 'stone'), roughness: 0.5 }),
+    bedrock: new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#1a1a1a', 80, 'none'), roughness: 1.0 }),
+    log:     new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#6b5336', 40, 'log'), roughness: 0.9 }),
+    leaves:  new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#3b6622', 60, 'none'), roughness: 0.9, transparent: true, alphaTest: 0.5 }),
+    furnace: new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#4a4a4a', 50, 'log'), roughness: 0.8 }),
+    sand:    new THREE.MeshStandardMaterial('#dbcd9f'),
+    water:   new THREE.MeshStandardMaterial({ color: 0x1E90FF, transparent: true, opacity: 0.6, roughness: 0.2 }),
+    // モブ用スキン
+    pig:     createMinecraftTexture('#f0a7b4', 20, 'none'),
+    zombie:  createMinecraftTexture('#3b7a57', 30, 'none')
+};
+
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+// プレイヤーの手
+const handGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.8);
+const matHand = new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#bc9374', 20, 'none'), roughness: 0.9 });
+const handMesh = new THREE.Mesh(handGeometry, matHand); handMesh.position.set(0.5, -0.4, -0.8); camera.add(handMesh); scene.add(camera);
+
+// 物理演算用
+let velocityY = 0; const GRAVITY = 0.012; const JUMP_FORCE = 0.22; let isGrounded = false; const PLAYER_HEIGHT = 1.6;
+
+// ==========================================
+// 4. ホットバー ＆ インベントリ
 // ==========================================
 const hotbarContainer = document.createElement('div');
 hotbarContainer.style.position = 'absolute'; hotbarContainer.style.bottom = '20px'; hotbarContainer.style.left = '50%';
@@ -53,27 +128,14 @@ for(let i=0; i<9; i++) {
     slot.style.fontFamily = 'sans-serif'; slot.style.fontSize = '10px'; hotbarContainer.appendChild(slot); slotsUI.push(slot);
 }
 
-// ==========================================
-// 3. クラフト ＆ かまど画面UI
-// ==========================================
+// クラフト＆かまど
 const craftMenu = document.createElement('div');
 craftMenu.style.position = 'absolute'; craftMenu.style.top = '50%'; craftMenu.style.left = '50%'; craftMenu.style.transform = 'translate(-50%, -50%)';
 craftMenu.style.width = '350px'; craftMenu.style.background = 'rgba(40, 40, 40, 0.95)'; craftMenu.style.border = '4px solid #fff';
 craftMenu.style.padding = '15px'; craftMenu.style.color = 'white'; craftMenu.style.fontFamily = 'sans-serif'; craftMenu.style.display = 'none'; craftMenu.style.zIndex = '100';
 document.body.appendChild(craftMenu);
 
-craftMenu.innerHTML = `
-    <h3 style="margin-top:0; text-align:center; color:#FFD700;">🎒 3x3 クラフトメニュー</h3>
-    <div style="display:flex; justify-content:center; gap:15px; margin-bottom:15px;">
-        <div style="display:grid; grid-template-columns: repeat(3, 45px); gap:5px;" id="craftGrid"></div>
-        <div style="display:flex; align-items:center; font-size:24px;">➔</div>
-        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;">
-            <div id="craftOutput" style="width:50px; height:50px; border:3px dashed #FFD700; background:rgba(255,215,0,0.1); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold;">空</div>
-            <button id="btnExecuteCraft" style="margin-top:8px; padding:3px 8px; font-size:12px;">作成</button>
-        </div>
-    </div>
-`;
-
+craftMenu.innerHTML = `<h3 style="margin-top:0; text-align:center; color:#FFD700;">🎒 3x3 クラフトメニュー</h3><div style="display:flex; justify-content:center; gap:15px; margin-bottom:15px;"><div style="display:grid; grid-template-columns: repeat(3, 45px); gap:5px;" id="craftGrid"></div><div style="display:flex; align-items:center; font-size:24px;">➔</div><div style="display:flex; flex-direction:column; align-items:center; justify-content:center;"><div id="craftOutput" style="width:50px; height:50px; border:3px dashed #FFD700; background:rgba(255,215,0,0.1); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold;">空</div><button id="btnExecuteCraft" style="margin-top:8px; padding:3px 8px; font-size:12px;">作成</button></div></div>`;
 const craftMatrix = [null, null, null, null, null, null, null, null, null];
 const gridContainer = document.getElementById('craftGrid');
 for (let i = 0; i < 9; i++) {
@@ -88,74 +150,68 @@ furnaceMenu.style.position = 'absolute'; furnaceMenu.style.top = '50%'; furnaceM
 furnaceMenu.style.width = '280px'; furnaceMenu.style.background = 'rgba(30, 30, 30, 0.95)'; furnaceMenu.style.border = '4px solid #FF4500';
 furnaceMenu.style.padding = '15px'; furnaceMenu.style.color = 'white'; furnaceMenu.style.fontFamily = 'sans-serif'; furnaceMenu.style.display = 'none'; furnaceMenu.style.zIndex = '101';
 document.body.appendChild(furnaceMenu);
+furnaceMenu.innerHTML = `<h3 style="margin-top:0; text-align:center; color:#FF4500;">🔥 かまど精錬システム</h3><div style="display:flex; flex-direction:column; gap:8px; margin-bottom:15px;"><button id="btnCookMeat" style="padding:6px; font-size:12px; background:#FF4500; color:white; border:none; cursor:pointer;">🍖生肉を焼く ➔ 🥩ステーキ</button><button id="btnSmeltIron" style="padding:6px; font-size:12px; background:#708090; color:white; border:none; cursor:pointer;">🪨石を焼く ➔ 🪙鉄インゴット</button><button id="btnSmeltGold" style="padding:6px; font-size:12px; background:#DAA520; color:white; border:none; cursor:pointer;">🪨石を焼く ➔ 🪙金インゴット</button></div><button id="btnCloseFurnace" style="width:100%; padding:4px;">閉じる</button>`;
 
-furnaceMenu.innerHTML = `
-    <h3 style="margin-top:0; text-align:center; color:#FF4500;">🔥 かまど精錬システム</h3>
-    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:15px;">
-        <button id="btnCookMeat" style="padding:6px; font-size:12px; background:#FF4500; color:white; border:none; cursor:pointer;">🍖生肉を焼く ➔ 🥩ステーキ</button>
-        <button id="btnSmeltIron" style="padding:6px; font-size:12px; background:#708090; color:white; border:none; cursor:pointer;">🪨鉄鉱石を焼く ➔ 🪙鉄インゴット</button>
-        <button id="btnSmeltGold" style="padding:6px; font-size:12px; background:#DAA520; color:white; border:none; cursor:pointer;">🪨金鉱石を焼く ➔ 🪙金インゴット</button>
-    </div>
-    <button id="btnCloseFurnace" style="width:100%; padding:4px;">閉じる</button>
-`;
-
-// ==========================================
-// 4. ライティング ＆ ブロックマテリアル
-// ==========================================
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.5); dirLight.position.set(20, 60, 20); scene.add(dirLight);
-
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const mats = {
-    grass:       new THREE.MeshLambertMaterial({ color: 0x556B2F }),
-    dirt:        new THREE.MeshLambertMaterial({ color: 0x8B4513 }),
-    stone:       new THREE.MeshLambertMaterial({ color: 0x808080 }),
-    iron:        new THREE.MeshLambertMaterial({ color: 0xD2B48C }), 
-    gold:        new THREE.MeshLambertMaterial({ color: 0xFFD700 }), 
-    diamond:     new THREE.MeshLambertMaterial({ color: 0x00FFFF }),
-    bedrock:     new THREE.MeshLambertMaterial({ color: 0x111111 }),
-    log:         new THREE.MeshLambertMaterial({ color: 0x5c4033 }),
-    leaves:      new THREE.MeshLambertMaterial({ color: 0x228b22 }),
-    furnace:     new THREE.MeshLambertMaterial({ color: 0x4F4F4F }), 
-    sand:        new THREE.MeshLambertMaterial({ color: 0xEDC9AF }),
-    water:       new THREE.MeshLambertMaterial({ color: 0x1E90FF, transparent: true, opacity: 0.6 }),
-    pig:         new THREE.MeshLambertMaterial({ color: 0xFFC0CB }), 
-    zombie:      new THREE.MeshLambertMaterial({ color: 0x2E8B57 })  
-};
-
-// プレイヤーの手のグラフィック
-const handGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.8);
-const matHand = new THREE.MeshLambertMaterial({ color: 0xbc9374 });
-const handMesh = new THREE.Mesh(handGeometry, matHand); handMesh.position.set(0.5, -0.4, -0.8); camera.add(handMesh); scene.add(camera);
-
-// ==========================================
-// 5. データ＆インベントリ管理
-// ==========================================
 const worldData = {}; const blockHP = {}; const activeBlocks = {}; const allBlocksArray = []; 
 const WORLD_SIZE = 60; const Y_MIN = -20; const Y_MAX = 20; const SEA_LEVEL = 4;
 const blockMaxHP = { grass:1, dirt:1, stone:4, iron:4, gold:8, diamond:8, bedrock:99999, log:2, leaves:1, furnace:4, sand:1, water:1 };
-
-const inventory = { log: 0, plank: 0, stone: 0, furnace: 0, raw_meat: 0, cooked_meat: 0, iron_ingot: 0, gold_ingot: 0, diamond: 0, iron_ore: 0, gold_ore: 0 };
+const inventory = { log: 0, plank: 0, stone: 0, furnace: 0, raw_meat: 0, cooked_meat: 0, iron_ingot: 0, gold_ingot: 0, diamond: 0 };
 let selectedSlot = 0; let playerTool = "👊 素手"; let playerPower = 1;
 
 const mobsArray = []; const dropsArray = [];
+
+// ==========================================
+// 5. 🗲 モブのリアルな立体化（頭・体・足パーツ分割＋影対応）
+// ==========================================
 function spawnMob(type, x, y, z) {
-    const mobGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8); const mobMesh = new THREE.Mesh(mobGeo, mats[type]);
-    mobMesh.position.set(x, y + 0.4, z); mobMesh.userData = { type: type, hp: (type === "zombie" ? 3 : 1), walkTimer: 0, dirX: 0, dirZ: 0 };
-    scene.add(mobMesh); mobsArray.push(mobMesh);
+    const mobGroup = new THREE.Group(); // 各パーツをまとめるグループ
+    const matMob = new THREE.MeshStandardMaterial({ map: mats[type], roughness: 0.9 });
+
+    // 体
+    const bodyGeo = type === 'pig' ? new THREE.BoxGeometry(0.6, 0.6, 0.9) : new THREE.BoxGeometry(0.6, 0.8, 0.4);
+    const bodyMesh = new THREE.Mesh(bodyGeo, matMob);
+    bodyMesh.position.y = type === 'pig' ? 0.5 : 0.7;
+    bodyMesh.castShadow = true; bodyMesh.receiveShadow = true;
+    mobGroup.add(bodyMesh);
+
+    // 頭
+    const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+    const headMesh = new THREE.Mesh(headGeo, matMob);
+    headMesh.position.set(0, type === 'pig' ? 0.7 : 1.2, type === 'pig' ? -0.5 : 0);
+    headMesh.castShadow = true; headMesh.receiveShadow = true;
+    mobGroup.add(headMesh);
+
+    // 4本の足
+    const legGeo = new THREE.BoxGeometry(0.18, 0.4, 0.18);
+    const legs = [];
+    const positions = type === 'pig' 
+        ? [[-0.2, 0.2, 0.3], [0.2, 0.2, 0.3], [-0.2, 0.2, -0.3], [0.2, 0.2, -0.3]]
+        : [[-0.18, 0.2, 0], [0.18, 0.2, 0], [-0.18, 0.2, 0], [0.18, 0.2, 0]]; // ゾンビは2本でも4本でも制御できるよう4つ定義
+
+    for(let i=0; i<4; i++) {
+        const leg = new THREE.Mesh(legGeo, matMob);
+        leg.position.set(positions[i][0], positions[i][1], positions[i][2]);
+        leg.castShadow = true; leg.receiveShadow = true;
+        mobGroup.add(leg); legs.push(leg);
+    }
+
+    mobGroup.position.set(x, y, z);
+    mobGroup.userData = { type: type, hp: (type === "zombie" ? 3 : 1), walkTimer: 0, dirX: 0, dirZ: 0, legs: legs };
+    scene.add(mobGroup); mobsArray.push(mobGroup);
 }
+
 function spawnDropItem(type, position) {
-    const dropGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3); const dropMesh = new THREE.Mesh(dropGeo, mats[type]);
-    dropMesh.position.copy(position); dropMesh.userData = { type: type }; scene.add(dropMesh); dropsArray.push(dropMesh);
+    const dropGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    const dropMesh = new THREE.Mesh(dropGeo, mats[type]);
+    dropMesh.position.copy(position); dropMesh.castShadow = true; dropMesh.userData = { type: type };
+    scene.add(dropMesh); dropsArray.push(dropMesh);
 }
 
 function updateGameUI() {
     let biomeName = "🌾 草原"; const px = Math.floor(camera.position.x); const pz = Math.floor(camera.position.z);
     if (px < 25 && pz < 25) biomeName = "🌳 森林"; else if (px >= 45) biomeName = "⏳ 砂漠"; else if (pz >= 45) biomeName = "🌊 海";
     if (pz >= 20 && pz <= 24 && px < 45) biomeName = "🏞️ 川";
-
-    heightUI.innerHTML = `高度 (Y): ${Math.floor(camera.position.y)} | バイオーム: ${biomeName} | 装備: ${playerTool}`;
-    
+    heightUI.innerHTML = `高度 (Y): ${Math.floor(camera.position.y - PLAYER_HEIGHT)} | バイオーム: ${biomeName} | 装備: ${playerTool}`;
     for(let i=0; i<9; i++) {
         const type = slotTypes[i];
         slotsUI[i].innerHTML = `<div>${slotNames[i]}</div><div style="font-weight:bold; font-size:13px; margin-top:2px;">${inventory[type] || 0}</div>`;
@@ -165,73 +221,42 @@ function updateGameUI() {
 }
 
 // ==========================================
-// 6. 【完全リビルド】バグを永久追放した地形生成
+// 6. 地形データ生成（影対応）
 // ==========================================
 for (let x = 0; x < WORLD_SIZE; x++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
-        let biome = "grassland"; 
-        let surfaceY = 5;
-
-        // バイオーム判定のクリーンアップ
+        let biome = "grassland"; let surfaceY = 5;
         if (x >= 45) { biome = "desert"; surfaceY = 6; }
         else if (x < 25 && z < 25) { biome = "forest"; surfaceY = 5; }
         else if (z >= 45) { biome = "ocean"; surfaceY = 1; }
-        
-        // 川の生成（地雷コードを除去し、数式だけに統一）
-        if (z >= 20 + Math.sin(x*0.2)*2 && z <= 24 + Math.sin(x*0.2)*2 && x < 45) { 
-            biome = "river"; 
-            surfaceY = 1; 
-        }
+        if (z >= 20 + Math.sin(x*0.2)*2 && z <= 24 + Math.sin(x*0.2)*2 && x < 45) { biome = "river"; surfaceY = 1; }
 
-        // 大地のレイヤー生成ループ（100%確実に走るよう再構築）
         for (let y = surfaceY; y >= Y_MIN; y--) {
             let type = null;
-            
-            if (y === Y_MIN) {
-                type = "bedrock";
-            } else if (y > surfaceY && y <= SEA_LEVEL && (biome === "ocean" || biome === "river")) {
-                type = "water";
-            } else if (y === surfaceY) {
-                type = (biome === "desert" || biome === "ocean" || biome === "river") ? "sand" : "grass";
-            } else if (y < surfaceY && y > surfaceY - 3) {
-                type = (biome === "desert") ? "sand" : "dirt";
-            } else if (y <= surfaceY - 3) {
+            if (y === Y_MIN) type = "bedrock";
+            else if (y > surfaceY && y <= SEA_LEVEL && (biome === "ocean" || biome === "river")) type = "water";
+            else if (y === surfaceY) type = (biome === "desert" || biome === "ocean" || biome === "river") ? "sand" : "grass";
+            else if (y < surfaceY && y > surfaceY - 3) type = (biome === "desert") ? "sand" : "dirt";
+            else if (y <= surfaceY - 3) {
                 const rand = Math.random();
-                if (y >= -5) {
-                    type = (rand < 0.04) ? "iron" : "stone"; // 鉄鉱石
-                } else {
-                    type = (rand < 0.02) ? "diamond" : (rand < 0.04 ? "gold" : "stone"); // ダイヤ・金・石
-                }
+                if (y >= -5) type = (rand < 0.04) ? "iron" : "stone";
+                else type = (rand < 0.02) ? "diamond" : (rand < 0.04 ? "gold" : "stone");
             }
-            
-            if (type) { 
-                const key = `${x},${y},${z}`; 
-                worldData[key] = type; 
-                blockHP[key] = blockMaxHP[type]; 
-            }
+            if (type) { worldData[`${x},${y},${z}`] = type; blockHP[`${x},${y},${z}`] = blockMaxHP[type]; }
         }
 
-        // 森林バイオームの木々の生成
         if (biome === "forest" && Math.random() < 0.06) {
-            for (let h = 1; h <= 3; h++) { 
-                worldData[`${x},${surfaceY + h},${z}`] = "log"; 
-                blockHP[`${x},${surfaceY + h},${z}`] = blockMaxHP["log"]; 
-            }
+            for (let h = 1; h <= 3; h++) { worldData[`${x},${surfaceY + h},${z}`] = "log"; blockHP[`${x},${surfaceY + h},${z}`] = blockMaxHP["log"]; }
             const leafY = surfaceY + 4; 
             for (let lx = -1; lx <= 1; lx++) { 
                 for (let lz = -1; lz <= 1; lz++) { 
                     for (let ly = 0; ly <= 1; ly++) { 
                         const leafKey = `${x + lx},${leafY + ly},${z + lz}`; 
-                        if (!worldData[leafKey]) { 
-                            worldData[leafKey] = "leaves"; 
-                            blockHP[leafKey] = blockMaxHP["leaves"]; 
-                        } 
+                        if (!worldData[leafKey]) { worldData[leafKey] = "leaves"; blockHP[leafKey] = blockMaxHP["leaves"]; } 
                     } 
                 } 
             }
         }
-
-        // モブのスポーンシステム（安全を最優先）
         if (Math.random() < 0.01 && biome !== "ocean" && biome !== "river") {
             if (biome === "desert") spawnMob("zombie", x, surfaceY, z);
             else spawnMob("pig", x, surfaceY, z);
@@ -239,15 +264,10 @@ for (let x = 0; x < WORLD_SIZE; x++) {
     }
 }
 
-// ==========================================
-// 7. 【最適化】広域描画＆チャンクレンダリング
-// ==========================================
+// チャンクアップデート（影設定を付与）
 function updateChunks() {
-    const px = Math.floor(camera.position.x); 
-    const py = Math.floor(camera.position.y); 
-    const pz = Math.floor(camera.position.z);
-    const r = 22; // レンダリング距離。十分な広さを確保
-    const currentKeys = {};
+    const px = Math.floor(camera.position.x); const py = Math.floor(camera.position.y); const pz = Math.floor(camera.position.z);
+    const r = 22; const currentKeys = {};
     
     for (let x = px - r; x <= px + r; x++) {
         for (let y = py - r; y <= py + r; y++) {
@@ -257,12 +277,10 @@ function updateChunks() {
                     currentKeys[key] = true;
                     if (!activeBlocks[key]) {
                         const block = new THREE.Mesh(geometry, mats[worldData[key]]);
-                        block.position.set(x, y, z); 
-                        block.name = worldData[key]; 
-                        block.userData = { key: key };
-                        scene.add(block); 
-                        activeBlocks[key] = block; 
-                        allBlocksArray.push(block);
+                        block.position.set(x, y, z); block.name = worldData[key]; block.userData = { key: key };
+                        block.castShadow = worldData[key] !== "water"; // 水以外は影を作る
+                        block.receiveShadow = true; // すべてのブロックは影を受ける
+                        scene.add(block); activeBlocks[key] = block; allBlocksArray.push(block);
                     }
                 }
             }
@@ -278,173 +296,54 @@ function updateChunks() {
     }
 }
 
-// ==========================================
-// 8. 各種クラフト・インベントリイベント
-// ==========================================
+// クラフトロジック
 function handleGridClick(index) {
     if (craftMatrix[index] === null) {
         const type = slotTypes[selectedSlot];
         if (["log", "stone"].includes(type) && inventory[type] > 0) { craftMatrix[index] = type; inventory[type]--; }
-    } else {
-        const type = craftMatrix[index]; inventory[type]++; craftMatrix[index] = null;
-    }
+    } else { const type = craftMatrix[index]; inventory[type]++; craftMatrix[index] = null; }
     checkCraftRecipe(); updateGameUI();
 }
-
 function checkCraftRecipe() {
     const grid = document.getElementById('craftGrid').children;
     for(let i=0; i<9; i++) grid[i].innerText = craftMatrix[i] ? (craftMatrix[i] === "log" ? "🪵" : "🪨") : "空";
-    const out = document.getElementById('craftOutput');
-    const nonNulls = craftMatrix.filter(x => x !== null);
-    
+    const out = document.getElementById('craftOutput'); const nonNulls = craftMatrix.filter(x => x !== null);
     if (nonNulls.length === 1 && nonNulls[0] === "log") { out.innerText = "🪵板材x4"; return; }
-    if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" &&
-        craftMatrix[3] === null && craftMatrix[4] === null && craftMatrix[5] === null &&
-        craftMatrix[6] === null && craftMatrix[7] === null && craftMatrix[8] === null) { out.innerText = "⛏️石ツルハシ"; return; }
-    if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" &&
-        craftMatrix[3] === "stone" && craftMatrix[4] === null    && craftMatrix[5] === "stone" &&
-        craftMatrix[6] === "stone" && craftMatrix[7] === "stone" && craftMatrix[8] === "stone") { out.innerText = "🔥かまどx1"; return; }
+    if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" && craftMatrix[3] === null && craftMatrix[4] === null && craftMatrix[5] === null && craftMatrix[6] === null && craftMatrix[7] === null && craftMatrix[8] === null) { out.innerText = "⛏️石ツルハシ"; return; }
+    if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" && craftMatrix[3] === "stone" && craftMatrix[4] === null && craftMatrix[5] === "stone" && craftMatrix[6] === "stone" && craftMatrix[7] === "stone" && craftMatrix[8] === "stone") { out.innerText = "🔥かまどx1"; return; }
     out.innerText = "空";
 }
-
 document.getElementById('btnExecuteCraft').addEventListener('click', () => {
     const result = document.getElementById('craftOutput').innerText; if (result === "空") return;
     if (result === "🪵板材x4") inventory.plank += 4;
-    else if (result === "⛏️石ツルハシ") { playerTool = "🪨石ツルハシ"; playerPower = 3; alert("⛏️ 石のツルハシを作成！(採掘力3倍)"); }
+    else if (result === "⛏️石ツルハシ") { playerTool = "🪨石ツルハシ"; playerPower = 3; alert("⛏️ 石のツルハシ作成！"); }
     else if (result === "🔥かまどx1") inventory.furnace += 1;
     for(let i=0; i<9; i++) craftMatrix[i] = null; checkCraftRecipe(); updateGameUI();
 });
-
-document.getElementById('btnCookMeat').addEventListener('click', () => {
-    if (inventory.raw_meat >= 1) { inventory.raw_meat--; inventory.cooked_meat++; updateGameUI(); alert("🥩 ステーキを焼いた！"); }
-});
-document.getElementById('btnSmeltIron').addEventListener('click', () => {
-    if (inventory.stone >= 1) { inventory.stone--; inventory.iron_ingot++; updateGameUI(); alert("🪙 鉄インゴットを精錬した！"); }
-});
-document.getElementById('btnSmeltGold').addEventListener('click', () => {
-    if (inventory.stone >= 1) { inventory.stone--; inventory.gold_ingot++; updateGameUI(); alert("🪙 金インゴットを精錬した！"); }
-});
+document.getElementById('btnCookMeat').addEventListener('click', () => { if (inventory.raw_meat >= 1) { inventory.raw_meat--; inventory.cooked_meat++; updateGameUI(); alert("🥩 ステーキを焼いた！"); } });
+document.getElementById('btnSmeltIron').addEventListener('click', () => { if (inventory.stone >= 1) { inventory.stone--; inventory.iron_ingot++; updateGameUI(); alert("🪙 鉄インゴット精錬！"); } });
+document.getElementById('btnSmeltGold').addEventListener('click', () => { if (inventory.stone >= 1) { inventory.stone--; inventory.gold_ingot++; updateGameUI(); alert("🪙 金インゴット精錬！"); } });
 document.getElementById('btnCloseFurnace').addEventListener('click', () => { furnaceMenu.style.display = 'none'; isFurnaceOpen = false; });
 
-// ==========================================
-// 9. マウス視点変更 ＆ キーボード操作
-// ==========================================
-let isDragging = false; let previousMousePosition = { x: 0, y: 0 };
-let rotationY = 0; let rotationX = 0; let isCraftOpen = false; let isFurnaceOpen = false;
-
+// 操作系
+let isDragging = false; let previousMousePosition = { x: 0, y: 0 }; let rotationY = 0; let rotationX = 0; let isCraftOpen = false; let isFurnaceOpen = false;
 window.addEventListener('mousedown', (e) => { if(isCraftOpen || isFurnaceOpen) return; isDragging = true; previousMousePosition = { x: e.clientX, y: e.clientY }; });
 window.addEventListener('mousemove', (e) => {
     if (!isDragging || isCraftOpen || isFurnaceOpen) return;
     const deltaX = e.clientX - previousMousePosition.x; const deltaY = e.clientY - previousMousePosition.y;
-    rotationY -= deltaX * 0.015; rotationX -= deltaY * 0.015;
-    rotationX = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, rotationX));
+    rotationY -= deltaX * 0.015; rotationX -= deltaY * 0.015; rotationX = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, rotationX));
     camera.rotation.set(rotationX, rotationY, 0, "YXZ"); previousMousePosition = { x: e.clientX, y: e.clientY };
 });
 window.addEventListener('mouseup', () => { isDragging = false; });
 
-const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
+const keys = { w: false, a: false, s: false, d: false };
 window.addEventListener('keydown', (e) => { 
     if(e.key.toLowerCase() === 'e') { isCraftOpen = !isCraftOpen; craftMenu.style.display = isCraftOpen ? 'block' : 'none'; furnaceMenu.style.display = 'none'; isFurnaceOpen = false; checkCraftRecipe(); isDragging = false; return; }
     if(["1","2","3","4","5","6","7","8","9"].includes(e.key)) { selectedSlot = parseInt(e.key) - 1; updateGameUI(); return; }
+    if(e.key === ' ' || e.code === 'Space') { if (isGrounded) { velocityY = JUMP_FORCE; isGrounded = false; } return; }
     const key = e.key.toLowerCase(); if(key in keys) keys[key] = true; 
 });
-window.addEventListener('keyup', (e) => { const key = e.key.toLowerCase(); if(key in keys) keys[key] = false; });
+window.addEventListener('keyup', (e) => { if(e.key === ' ' || e.code === 'Space') return; const key = e.key.toLowerCase(); if(key in keys) keys[key] = false; });
 
-// ==========================================
-// 10. ブロック破壊・設置 ＆ モブ攻撃判定
-// ==========================================
-let handSwingTimer = 0; let isSwinging = false;
-const raycaster = new THREE.Raycaster(); const screenCenter = new THREE.Vector2(0, 0);
-
-window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
-window.addEventListener('pointerdown', (e) => {
-    if(isCraftOpen || isFurnaceOpen) return;
-    isSwinging = true; handSwingTimer = 0;
-    raycaster.setFromCamera(screenCenter, camera);
-
-    // モブへの攻撃判定
-    const mobIntersects = raycaster.intersectObjects(mobsArray);
-    if (mobIntersects.length > 0 && mobIntersects[0].distance <= 5 && e.button === 0) {
-        const hitMob = mobIntersects[0].object; hitMob.userData.hp -= 1; hitMob.position.y += 0.5;
-        if (hitMob.userData.hp <= 0) { if (hitMob.userData.type === "pig") spawnDropItem("raw_meat", hitMob.position); scene.remove(hitMob); mobsArray.splice(mobsArray.indexOf(hitMob), 1); }
-        return;
-    }
-
-    // ブロックへの干渉判定
-    const intersects = raycaster.intersectObjects(allBlocksArray);
-    if (intersects.length > 0 && intersects[0].distance <= 5) {
-        const hit = intersects[0]; const hitBlock = hit.object; const blockKey = hitBlock.userData.key;
-
-        if (e.button === 0) { // 左クリック：採掘
-            if (hitBlock.name !== "bedrock") {
-                blockHP[blockKey] -= playerPower;
-                if (blockHP[blockKey] <= 0) {
-                    let dropType = hitBlock.name; if (dropType === "grass") dropType = "dirt";
-                    inventory[dropType] = (inventory[dropType] || 0) + 1;
-                    scene.remove(hitBlock); allBlocksArray.splice(allBlocksArray.indexOf(hitBlock), 1);
-                    delete activeBlocks[blockKey]; delete worldData[blockKey]; updateGameUI();
-                }
-            }
-        } else if (e.button === 2) { // 右クリック：設置・UI起動
-            if (hitBlock.name === "furnace") { isFurnaceOpen = true; furnaceMenu.style.display = 'block'; isDragging = false; }
-            else {
-                const currentBuildType = slotTypes[selectedSlot];
-                if (inventory[currentBuildType] > 0) {
-                    const normal = hit.face.normal; const newPos = hitBlock.position.clone().add(normal);
-                    const newKey = `${newPos.x},${newPos.y},${newPos.z}`;
-                    if (newPos.y <= Y_MAX && newPos.y >= Y_MIN) {
-                        worldData[newKey] = currentBuildType; blockHP[newKey] = blockMaxHP[currentBuildType];
-                        inventory[currentBuildType]--; updateChunks(); updateGameUI();
-                    }
-                }
-            }
-        }
-    }
-});
-
-// ==========================================
-// 11. ゲームメインループ（毎フレーム実行）
-// ==========================================
-const playerSpeed = 0.15;
-function animate() {
-    requestAnimationFrame(animate);
-    
-    // 手の振りのアニメーション
-    if (isSwinging) {
-        handSwingTimer += 0.2; handMesh.position.z = -0.8 + Math.sin(handSwingTimer) * 0.15; handMesh.position.y = -0.4 + Math.cos(handSwingTimer) * 0.05;
-        if (handSwingTimer > Math.PI) { isSwinging = false; handMesh.position.set(0.5, -0.4, -0.8); }
-    }
-    
-    // キーボード移動
-    if (!isCraftOpen && !isFurnaceOpen) {
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
-        if (keys.w) camera.position.addScaledVector(forward, playerSpeed); if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
-        if (keys.a) camera.position.addScaledVector(right, -playerSpeed); if (keys.d) camera.position.addScaledVector(right, playerSpeed);
-        if (keys.q) camera.position.y += playerSpeed; if (keys.e) camera.position.y -= playerSpeed;
-    }
-
-    // モブのAI移動
-    mobsArray.forEach(mob => {
-        mob.userData.walkTimer += 0.05;
-        if (mob.userData.type === "pig") {
-            if (mob.userData.walkTimer > 5) { mob.userData.walkTimer = 0; mob.userData.dirX = (Math.random() - 0.5) * 0.03; mob.userData.dirZ = (Math.random() - 0.5) * 0.03; }
-            mob.position.x += mob.userData.dirX; mob.position.z += mob.userData.dirZ;
-        } else if (mob.userData.type === "zombie") {
-            const dx = camera.position.x - mob.position.x; const dz = camera.position.z - mob.position.z; const dist = Math.sqrt(dx*dx + dz*dz);
-            if (dist < 15) { mob.position.x += (dx / dist) * 0.02; mob.position.z += (dz / dist) * 0.02; }
-        }
-        if(mob.position.y > 5.4) mob.position.y -= 0.05; // 簡易重力
-    });
-
-    // ドロップアイテムの吸い込み処理
-    for (let i = dropsArray.length - 1; i >= 0; i--) {
-        const drop = dropsArray[i]; const dx = camera.position.x - drop.position.x; const dy = camera.position.y - drop.position.y; const dz = camera.position.z - drop.position.z; const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-        if (dist < 4) { drop.position.x += (dx / dist) * 0.15; drop.position.y += (dy / dist) * 0.15; drop.position.z += (dz / dist) * 0.15; if (dist < 0.8) { inventory[drop.userData.type]++; scene.remove(drop); dropsArray.splice(i, 1); updateGameUI(); } }
-    }
-
-    updateChunks(); updateGameUI(); renderer.render(scene, camera);
-}
-animate();
-
-window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+// 破壊・設置・攻撃
+let isSwinging = false; let handSwingTimer = 0; const raycaster = new THREE.Raycaster(); const screenCenter = new THREE.Vector2(0
