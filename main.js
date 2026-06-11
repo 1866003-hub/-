@@ -1,53 +1,79 @@
-// 1. シーン・カメラ・レンダラーの基本セットアップ
+// 1. 基本セットアップ
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // マイクラっぽい青空の色
+scene.background = new THREE.Color(0x87CEEB); // 青空
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(3, 3, 5);
+// 全体が見えるようにカメラを少し引く
+camera.position.set(5, 8, 12);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// カメラをマウスでぐるぐる動かせるようにする
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(5, 0, 5); // カメラの回転中心を地面の真ん中に
 
-// 2. 光（ライト）を入れる（これがないと真っ暗になります）
+// 2. ライト
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
 directionalLight.position.set(10, 20, 15);
 scene.add(directionalLight);
 
-// 3. ブロック（立方体）を1個作る（まずは土ブロックの代わりの茶色）
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-const block = new THREE.Mesh(geometry, material);
-scene.add(block);
+// 3. 【激軽対策】InstancedMeshを使って100個のブロックを1発で描画する
+const WORLD_SIZE = 10; // 10 x 10 マス
+const maxBlocks = WORLD_SIZE * WORLD_SIZE;
 
-// 4. クリックでブロックを消す仕組み（レイキャスター）
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const material = new THREE.MeshLambertMaterial({ color: 0x556B2F }); // 草ブロックっぽい緑色
+
+// 大量配置用の特殊なメッシュ
+const blockCluster = new THREE.InstancedMesh(geometry, material, maxBlocks);
+scene.add(blockCluster);
+
+// ブロックの位置データを保存する配列（後で掘るために使う）
+const dummy = new THREE.Object3D();
+let blockCount = 0;
+
+for (let x = 0; x < WORLD_SIZE; x++) {
+    for (let z = 0; z < WORLD_SIZE; z++) {
+        // y=0 の高さに平らに並べる
+        dummy.position.set(x, 0, z);
+        dummy.updateMatrix();
+        
+        // i番目のブロックの位置を設定
+        blockCluster.setMatrixAt(blockCount, dummy.matrix);
+        blockCount++;
+    }
+}
+// 変更を画面に反映
+blockCluster.instanceMatrix.needsUpdate = true;
+
+// 4. クリックでブロックを消す（掘る）処理
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
 window.addEventListener('click', (event) => {
-    // 画面中央（照準の位置）の座標を設定
-    mouse.x = 0;
+    mouse.x = 0; // 画面中央
     mouse.y = 0;
     
     raycaster.setFromCamera(mouse, camera);
-    // 画面内のオブジェクトと照準が当たっているかチェック
-    const intersects = raycaster.intersectObjects(scene.children);
+    const intersects = raycaster.intersectObject(blockCluster); // 集団（Cluster）に対して判定
 
-    for (let i = 0; i < intersects.length; i++) {
-        // 当たったオブジェクトが「ブロック」だったら消す
-        if (intersects[i].object === block) {
-            scene.remove(block);
-            alert("ブロックを掘った！次はダイヤを出すぞ！");
-        }
+    if (intersects.length > 0) {
+        // 何番目のインスタンス（ブロック）に当たったかを取得
+        const instanceId = intersects[0].instanceId;
+        
+        // 当たったブロックを「見えない位置」に吹き飛ばして消す（超高速トリック）
+        const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+        blockCluster.setMatrixAt(instanceId, zeroMatrix);
+        blockCluster.instanceMatrix.needsUpdate = true;
+        
+        console.log("ブロックID " + instanceId + " を掘った！");
     }
 });
 
-// 5. 毎フレーム描画するループ処理
+// 5. ループ処理
 function animate() {
     requestAnimationFrame(animate);
     controls.update();
@@ -55,7 +81,6 @@ function animate() {
 }
 animate();
 
-// 画面のサイズが変わったときの対策
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
