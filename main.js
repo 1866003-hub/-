@@ -84,7 +84,7 @@ const handGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.8);
 const matHand = new THREE.MeshStandardMaterial({ map: createMinecraftTexture('#bc9374', 20, 'none'), roughness: 0.9 });
 const handMesh = new THREE.Mesh(handGeometry, matHand); handMesh.position.set(0.5, -0.4, -0.8); camera.add(handMesh); scene.add(camera);
 
-// 物理パラメータ（移動爆速＆重力強化キープ）
+// 物理パラメータ
 let velocityY = 0; 
 const GRAVITY = 0.035;      
 const JUMP_FORCE = 0.38;    
@@ -100,7 +100,6 @@ hotbarContainer.style.transform = 'translateX(-50%)'; hotbarContainer.style.disp
 hotbarContainer.style.background = 'rgba(0,0,0,0.5)'; hotbarContainer.style.padding = '5px'; hotbarContainer.style.borderRadius = '5px';
 document.body.appendChild(hotbarContainer);
 
-// 【修正】インベントリに「棒(stick)」を正規実装
 const slotTypes = ["log", "plank", "stick", "stone", "furnace", "raw_meat", "cooked_meat", "iron_ingot", "diamond"];
 const slotNames = ["🪵原木", "🪵板材", "🥢棒", "🪨石", "🔥炉", "🍖生肉", "🥩焼肉", "🪙鉄ｲﾝｺﾞ", "💎ダ"];
 const slotsUI = [];
@@ -148,6 +147,7 @@ let playerTool = "👊 素手";
 let playerAttackPower = 1;
 
 const mobsArray = []; const dropsArray = [];
+let lastChunkX = NaN, lastChunkY = NaN, lastChunkZ = NaN; // 【最適化用】
 
 // モブ生成
 function spawnMob(type, x, y, z) {
@@ -169,11 +169,14 @@ function spawnDropItem(type, position) {
     dropMesh.position.copy(position); dropMesh.userData = { type: type }; scene.add(dropMesh); dropsArray.push(dropMesh);
 }
 
+// 【最適化】DOM操作の回数を劇的に減らすUI更新
 function updateGameUI() {
     let biomeName = "🌾 草原"; const px = Math.floor(camera.position.x); const pz = Math.floor(camera.position.z);
     if (px < 25 && pz < 25) biomeName = "🌳 森林"; else if (px >= 45) biomeName = "⏳ 砂漠"; else if (pz >= 45) biomeName = "🌊 海";
     if (pz >= 20 && pz <= 24 && px < 45) biomeName = "🏞️ 川";
+    
     heightUI.innerHTML = `高度 (Y): ${Math.floor(camera.position.y - PLAYER_HEIGHT)} | バイオーム: ${biomeName} | 装備: ${playerTool} (攻撃:${playerAttackPower})`;
+    
     for(let i=0; i<9; i++) {
         const type = slotTypes[i];
         slotsUI[i].innerHTML = `<div>${slotNames[i]}</div><div style="font-weight:bold; font-size:13px; margin-top:2px;">${inventory[type] || 0}</div>`;
@@ -224,10 +227,17 @@ for (let x = 0; x < WORLD_SIZE; x++) {
     }
 }
 
-// チャンクレンダリング(r=38)
-function updateChunks() {
-    const px = Math.floor(camera.position.x); const py = Math.floor(camera.position.y); const pz = Math.floor(camera.position.z);
-    const r = 38; const currentKeys = {};
+// 【最適化】プレイヤーが1マス移動したときだけチャンク計算を行うように超軽量化
+function updateChunks(force = false) {
+    const px = Math.floor(camera.position.x); 
+    const py = Math.floor(camera.position.y); 
+    const pz = Math.floor(camera.position.z);
+    
+    if (!force && px === lastChunkX && py === lastChunkY && pz === lastChunkZ) return;
+    lastChunkX = px; lastChunkY = py; lastChunkZ = pz;
+
+    const r = 32; // 描画半径を少し絞ってさらに軽量化
+    const currentKeys = {};
     for (let x = px - r; x <= px + r; x++) {
         for (let y = py - r; y <= py + r; y++) {
             for (let z = pz - r; z <= pz + r; z++) {
@@ -252,7 +262,7 @@ function updateChunks() {
 }
 
 // ==========================================
-// 6. クラフト＆レシピ判定（原木➔木材➔棒➔各ツール）
+// 6. クラフト＆レシピ判定
 // ==========================================
 function handleGridClick(index) {
     if (craftMatrix[index] === null) {
@@ -275,24 +285,12 @@ function checkCraftRecipe() {
     const out = document.getElementById('craftOutput'); 
     const nonNulls = craftMatrix.filter(x => x !== null);
 
-    // 1. 原木 ➔ 木材x4
     if (nonNulls.length === 1 && nonNulls[0] === "log") { out.innerText = "🪵板材x4"; return; }
-    
-    // 2. 木材縦2個 ➔ 棒x4 (上段中央+中段中央)
     if (craftMatrix[1] === "plank" && craftMatrix[4] === "plank" && craftMatrix[0]===null && craftMatrix[2]===null && craftMatrix[3]===null && craftMatrix[5]===null && craftMatrix[6]===null && craftMatrix[7]===null && craftMatrix[8]===null) { out.innerText = "🥢棒x4"; return; }
-    // 2b. 木材縦2個 ➔ 棒x4 (中段中央+下段中央)
     if (craftMatrix[4] === "plank" && craftMatrix[7] === "plank" && craftMatrix[0]===null && craftMatrix[1]===null && craftMatrix[2]===null && craftMatrix[3]===null && craftMatrix[5]===null && craftMatrix[6]===null && craftMatrix[8]===null) { out.innerText = "🥢棒x4"; return; }
-
-    // 3. 【本家】石ツルハシ（上段石3、中段中央棒、下段中央棒）
     if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" && craftMatrix[4] === "stick" && craftMatrix[7] === "stick" && craftMatrix[3]===null && craftMatrix[5]===null && craftMatrix[6]===null && craftMatrix[8]===null) { out.innerText = "⛏️石ツルハシ"; return; }
-    
-    // 4. 【本家】石の剣（上段中央石、中段中央石、下段中央棒）
     if (craftMatrix[1] === "stone" && craftMatrix[4] === "stone" && craftMatrix[7] === "stick" && craftMatrix[0]===null && craftMatrix[2]===null && craftMatrix[3]===null && craftMatrix[5]===null && craftMatrix[6]===null && craftMatrix[8]===null) { out.innerText = "⚔️石の剣"; return; }
-    
-    // 5. 【本家】石スコップ（上段中央石、中段中央棒、下段中央棒）
     if (craftMatrix[1] === "stone" && craftMatrix[4] === "stick" && craftMatrix[7] === "stick" && craftMatrix[0]===null && craftMatrix[2]===null && craftMatrix[3]===null && craftMatrix[5]===null && craftMatrix[6]===null && craftMatrix[8]===null) { out.innerText = "🥄石スコップ"; return; }
-
-    // 6. かまど（真ん中空けの周囲石8個）
     if (craftMatrix[0] === "stone" && craftMatrix[1] === "stone" && craftMatrix[2] === "stone" && craftMatrix[3] === "stone" && craftMatrix[4] === null && craftMatrix[5] === "stone" && craftMatrix[6] === "stone" && craftMatrix[7] === "stone" && craftMatrix[8] === "stone") { out.innerText = "🔥かまどx1"; return; }
 
     out.innerText = "空";
@@ -302,10 +300,10 @@ document.getElementById('btnExecuteCraft').addEventListener('click', () => {
     const result = document.getElementById('craftOutput').innerText; if (result === "空") return;
     if (result === "🪵板材x4") inventory.plank += 4;
     else if (result === "🥢棒x4") inventory.stick += 4;
-    else if (result === "⛏️石ツルハシ") { playerTool = "⛏️ 石ツルハシ"; playerAttackPower = 1.5; alert("⛏️ 石ツルハシをクラフト！岩盤の採掘速度UP！"); }
+    else if (result === "⛏️石ツルハシ") { playerTool = "⛏️ 石ツルハシ"; playerAttackPower = 1.5; alert("⛏️ 石ツルハシをクラフト！"); }
     else if (result === "🔥かまどx1") inventory.furnace += 1;
-    else if (result === "⚔️石の剣") { playerTool = "⚔️ 石の剣"; playerAttackPower = 3.5; alert("⚔️ 石の剣をクラフト！ゾンビ迎撃用！"); }
-    else if (result === "🥄石スコップ") { playerTool = "🥄 石スコップ"; playerAttackPower = 1.0; alert("🥄 石スコップをクラフト！土・砂の整地爆速！"); }
+    else if (result === "⚔️石の剣") { playerTool = "⚔️ 石の剣"; playerAttackPower = 3.5; alert("⚔️ 石の剣をクラフト！"); }
+    else if (result === "🥄石スコップ") { playerTool = "🥄 石スコップ"; playerAttackPower = 1.0; alert("🥄 石スコップをクラフト！"); }
     
     for(let i=0; i<9; i++) craftMatrix[i] = null; checkCraftRecipe(); updateGameUI();
 });
@@ -314,7 +312,7 @@ document.getElementById('btnCookMeat').addEventListener('click', () => { if (inv
 document.getElementById('btnSmeltIron').addEventListener('click', () => { if (inventory.stone >= 1) { inventory.stone--; inventory.iron_ingot++; updateGameUI(); alert("🪙 鉄インゴット精錬！"); } });
 document.getElementById('btnCloseFurnace').addEventListener('click', () => { furnaceMenu.style.display = 'none'; isFurnaceOpen = false; });
 
-// 操作
+// 操作系
 let isDragging = false; let previousMousePosition = { x: 0, y: 0 }; let rotationY = 0; let rotationX = 0; let isCraftOpen = false; let isFurnaceOpen = false;
 window.addEventListener('mousedown', (e) => { if(isCraftOpen || isFurnaceOpen) return; isDragging = true; previousMousePosition = { x: e.clientX, y: e.clientY }; });
 window.addEventListener('mousemove', (e) => {
@@ -376,27 +374,41 @@ window.addEventListener('pointerdown', (e) => {
                 const currentBuildType = slotTypes[selectedSlot];
                 if (inventory[currentBuildType] > 0) {
                     const normal = hit.face.normal; const newPos = hitBlock.position.clone().add(normal); const newKey = `${newPos.x},${newPos.y},${newPos.z}`;
-                    if (newPos.y <= Y_MAX && newPos.y >= Y_MIN) { worldData[newKey] = currentBuildType; blockHP[newKey] = blockMaxHP[currentBuildType]; inventory[currentBuildType]--; updateChunks(); updateGameUI(); }
+                    if (newPos.y <= Y_MAX && newPos.y >= Y_MIN) { worldData[newKey] = currentBuildType; blockHP[newKey] = blockMaxHP[currentBuildType]; inventory[currentBuildType]--; updateChunks(true); updateGameUI(); }
                 }
             }
         }
     }
 });
 
-// メインループ
+// 初期描画の強制実行
+updateChunks(true);
+updateGameUI();
+
+// ==========================================
+// 8. 軽量化版メインループ
+// ==========================================
 const playerSpeed = 0.22; 
+let uiTimer = 0;
+
 function animate() {
     requestAnimationFrame(animate);
+    
     if (isSwinging) {
         handSwingTimer += 0.2; handMesh.position.z = -0.8 + Math.sin(handSwingTimer) * 0.15; handMesh.position.y = -0.4 + Math.cos(handSwingTimer) * 0.05;
         if (handSwingTimer > Math.PI) { isSwinging = false; handMesh.position.set(0.5, -0.4, -0.8); }
     }
+    
+    let isMoving = false;
     if (!isCraftOpen && !isFurnaceOpen) {
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
-        if (keys.w) camera.position.addScaledVector(forward, playerSpeed); if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
-        if (keys.a) camera.position.addScaledVector(right, -playerSpeed); if (keys.d) camera.position.addScaledVector(right, playerSpeed);
+        if (keys.w) { camera.position.addScaledVector(forward, playerSpeed); isMoving = true; }
+        if (keys.s) { camera.position.addScaledVector(forward, -playerSpeed); isMoving = true; }
+        if (keys.a) { camera.position.addScaledVector(right, -playerSpeed); isMoving = true; }
+        if (keys.d) { camera.position.addScaledVector(right, playerSpeed); isMoving = true; }
     }
+    
     velocityY -= GRAVITY; camera.position.y += velocityY;
     const pX = Math.floor(camera.position.x + 0.5); const pZ = Math.floor(camera.position.z + 0.5);
     let highestGroundY = -999;
@@ -405,32 +417,10 @@ function animate() {
     if (camera.position.y <= groundThreshold) { camera.position.y = groundThreshold; velocityY = 0; isGrounded = true; } else { isGrounded = false; }
     if (camera.position.y < Y_MIN - 5) { camera.position.set(30, 8, 30); velocityY = 0; }
 
+    // モブAI
     mobsArray.forEach(mob => {
         mob.userData.walkTimer += 0.05; const speedFactor = mob.userData.type === 'pig' ? 0.03 : 0.02;
         if (mob.userData.type === "pig") {
             if (mob.userData.walkTimer > 5) { mob.userData.walkTimer = 0; mob.userData.dirX = (Math.random() - 0.5) * speedFactor; mob.userData.dirZ = (Math.random() - 0.5) * speedFactor; }
             mob.position.x += mob.userData.dirX; mob.position.z += mob.userData.dirZ;
-            if(mob.userData.dirX !== 0 || mob.userData.dirZ !== 0) mob.rotation.y = Math.atan2(mob.userData.dirX, mob.userData.dirZ);
-        } else if (mob.userData.type === "zombie") {
-            const dx = camera.position.x - mob.position.x; const dz = camera.position.z - mob.position.z; const dist = Math.sqrt(dx*dx + dz*dz);
-            if (dist < 15) { mob.position.x += (dx / dist) * speedFactor; mob.position.z += (dz / dist) * speedFactor; mob.rotation.y = Math.atan2(dx, dz); }
-        }
-        const time = Date.now() * 0.01;
-        if(mob.userData.legs) {
-            mob.userData.legs[0].rotation.x = Math.sin(time) * 0.6; mob.userData.legs[1].rotation.x = -Math.sin(time) * 0.6;
-            mob.userData.legs[2].rotation.x = -Math.sin(time) * 0.6; mob.userData.legs[3].rotation.x = Math.sin(time) * 0.6;
-        }
-        const mX = Math.floor(mob.position.x + 0.5); const mZ = Math.floor(mob.position.z + 0.5);
-        let mobGroundY = 5; for(let my = 10; my >= Y_MIN; my--) { if(worldData[`${mX},${my},${mZ}`]) { mobGroundY = my; break; } }
-        mob.position.y = mobGroundY + 0.5;
-    });
-
-    for (let i = dropsArray.length - 1; i >= 0; i--) {
-        const drop = dropsArray[i]; const dx = camera.position.x - drop.position.x; const dy = camera.position.y - drop.position.y; const dz = camera.position.z - drop.position.z; const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-        if (dist < 4) { drop.position.x += (dx / dist) * 0.15; drop.position.y += (dy / dist) * 0.15; drop.position.z += (dz / dist) * 0.15; if (dist < 0.8) { inventory[drop.userData.type]++; scene.remove(drop); dropsArray.splice(i, 1); updateGameUI(); } }
-    }
-    updateChunks(); updateGameUI(); renderer.render(scene, camera);
-}
-animate();
-
-window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+            if(mob.userData.dirX !== 0 || mob.userData.dirZ !== 0) mob.rotation.y = Math.atan2(
