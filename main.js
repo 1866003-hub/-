@@ -3,7 +3,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // 青空
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(1.5, 1.6, 5.5); // ちょっと後ろに引いて建築しやすく
+camera.position.set(10, 5, 25); // 初期位置
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -22,27 +22,46 @@ crosshair.style.borderRadius = '50%';
 crosshair.style.pointerEvents = 'none';
 document.body.appendChild(crosshair);
 
+// 案内テキスト（画面上部にうっすら表示）
+const infoText = document.createElement('div');
+infoText.style.position = 'absolute';
+infoText.style.top = '20px';
+infoText.style.width = '100%';
+infoText.style.textAlign = 'center';
+infoText.style.color = 'white';
+infoText.style.fontSize = '16px';
+infoText.style.fontFamily = 'sans-serif';
+infoText.style.textShadow = '1px 1px 3px black';
+infoText.innerHTML = '🖱️ 画面を【ダブルクリック】でマイクラ操作モード起動 / 【Esc】で解除';
+document.body.appendChild(infoText);
+
 // 2. ライト
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+dirLight.position.set(20, 40, 20);
+scene.add(dirLight);
 
 // 3. ブロックの準備
 const geometry = new THREE.BoxGeometry(1, 1, 1);
-const matGrass = new THREE.MeshLambertMaterial({ color: 0x556B2F }); // 草
-const matDirt  = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // 土
-const matDiamond = new THREE.MeshLambertMaterial({ color: 0x00FFFF }); // ダイヤ
+const matGrass = new THREE.MeshLambertMaterial({ color: 0x556B2F });
+const matDirt  = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+const matDiamond = new THREE.MeshLambertMaterial({ color: 0x00FFFF });
 
-// 4. 最初の大地を作る
+// 4. 20 x 20 の地形生成
 const allBlocks = [];
-const SIZE = 3;
+const WORLD_SIZE = 20;
 
-for (let x = 0; x < SIZE; x++) {
-    for (let y = 0; y >= -2; y--) {
-        for (let z = 0; z < SIZE; z++) {
+for (let x = 0; x < WORLD_SIZE; x++) {
+    for (let z = 0; z < WORLD_SIZE; z++) {
+        const heightEffect = Math.sin(x * 0.3) * Math.cos(z * 0.3) * 2;
+        const surfaceY = Math.round(heightEffect);
+
+        for (let y = surfaceY; y > surfaceY - 3; y--) {
             let currentMaterial = matDirt;
             let blockType = "dirt";
 
-            if (y === 0) {
+            if (y === surfaceY) {
                 currentMaterial = matGrass;
                 blockType = "grass";
             }
@@ -57,41 +76,34 @@ for (let x = 0; x < SIZE; x++) {
     }
 }
 
-// 5. ドラッグで視点変更システム
-let isDragging = false;
-let previousMousePosition = { x: 0, y: 0 };
-let rotationY = 0;
-let rotationX = 0;
-
-window.addEventListener('mousedown', (e) => {
-    // 左・右クリックの単発押し時はドラッグ開始とみなさない（建築・採掘を優先）
-    isDragging = true;
-    previousMousePosition = { x: e.clientX, y: e.clientY };
+// 5. 【究極修正】ダブルクリックで確実ロック＆ドラッグ不要の視点移動
+window.addEventListener('dblclick', () => {
+    // ダブルクリックされたら、ブラウザの制限を突破してマウスをロック！
+    renderer.domElement.requestPointerLock();
 });
 
-window.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    const deltaX = e.clientX - previousMousePosition.x;
-    const deltaY = e.clientY - previousMousePosition.y;
-
-    // 移動量が少なすぎる場合は無視（クリック時のブレ対策）
-    if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) return;
-
-    rotationY -= deltaX * 0.005;
-    rotationX -= deltaY * 0.005;
-    rotationX = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, rotationX));
-
-    camera.rotation.set(rotationX, rotationY, 0, "YXZ");
-    previousMousePosition = { x: e.clientX, y: e.clientY };
+// ロック状態に応じて案内テキストを切り替える
+document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === renderer.domElement) {
+        infoText.innerHTML = '🚀 マイクラモード中！ 【W,A,S,D】移動 / 【Q】上昇 【E】下降 / 【Esc】でマウス解放';
+    } else {
+        infoText.innerHTML = '🖱️ 画面を【ダブルクリック】でマイクラ操作モード起動 / 【Esc】で解除';
+    }
 });
 
-window.addEventListener('mouseup', () => {
-    isDragging = false;
+// マウスを動かすだけでキョロキョロ動く（ドラッグ一切不要！）
+document.addEventListener('mousemove', (event) => {
+    // マウスがロックされている時だけ視点を動かす
+    if (document.pointerLockElement === renderer.domElement) {
+        camera.rotation.y -= event.movementX * 0.002;
+        camera.rotation.x -= event.movementY * 0.002;
+        camera.rotation.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, camera.rotation.x));
+    }
 });
+camera.rotation.order = "YXZ";
 
 // キーボード移動
-const keys = { w: false, a: false, s: false, d: false };
+const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
 window.addEventListener('keydown', (e) => { 
     const key = e.key.toLowerCase();
     if(key in keys) keys[key] = true; 
@@ -101,17 +113,16 @@ window.addEventListener('keyup', (e) => {
     if(key in keys) keys[key] = false; 
 });
 
-// 6. 【超進化】破壊と建築（左クリックで掘る / 右クリックで置く）
+// 6. 破壊と建築（マウスがロックされている時だけ作動）
 const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2(0, 0); // 常に画面中央
+const mouse = new THREE.Vector2(0, 0);
 
-// ブラウザの右クリックメニューを禁止する（ゲームの邪魔になるため）
-window.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-});
+window.addEventListener('contextmenu', (e) => { e.preventDefault(); });
 
 window.addEventListener('pointerdown', (e) => {
-    // 視線の先にあるブロックを感知
+    // マウスがロックされていない時はクリックを無視（誤作動防止）
+    if (document.pointerLockElement !== renderer.domElement) return;
+
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(allBlocks);
 
@@ -119,54 +130,50 @@ window.addEventListener('pointerdown', (e) => {
         const hit = intersects[0];
         const hitBlock = hit.object;
 
-        if (hit.distance < 6) { // 手が届く距離
-            
+        if (hit.distance < 15) {
             if (e.button === 0) {
-                // --- 【左クリック】ブロックを破壊 ---
+                // 左クリック：破壊
                 scene.remove(hitBlock);
                 const index = allBlocks.indexOf(hitBlock);
                 if (index > -1) allBlocks.splice(index, 1);
-                
             } else if (e.button === 2) {
-                // --- 【右クリック】ブロックを設置 ---
-                // 当たった面の向き（法線ベクトル）を取得
+                // 右クリック：建築
                 const normal = hit.face.normal;
-                
-                // 新しいブロックの座標を計算（当たったブロックの隣）
                 const newPos = hitBlock.position.clone().add(normal);
                 
-                // ダイヤモンドブロックを生成して配置！
                 const newBlock = new THREE.Mesh(geometry, matDiamond);
                 newBlock.position.copy(newPos);
                 newBlock.name = "diamond_built";
                 
                 scene.add(newBlock);
-                allBlocks.push(newBlock); // 次からこのブロックも掘ったり上に置いたりできる
+                allBlocks.push(newBlock);
             }
         }
     }
 });
 
 // 7. 移動ループ
-const playerSpeed = 0.06;
+const playerSpeed = 0.12;
 
 function animate() {
     requestAnimationFrame(animate);
 
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    forward.y = 0; 
-    forward.normalize();
+    if (document.pointerLockElement === renderer.domElement) {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        forward.y = 0; 
+        forward.normalize();
 
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-    right.y = 0;
-    right.normalize();
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        right.y = 0;
+        right.normalize();
 
-    if (keys.w) camera.position.addScaledVector(forward, playerSpeed);
-    if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
-    if (keys.a) camera.position.addScaledVector(right, -playerSpeed);
-    if (keys.d) camera.position.addScaledVector(right, playerSpeed);
-
-    camera.position.y = 1.6; // 目の高さ固定
+        if (keys.w) camera.position.addScaledVector(forward, playerSpeed);
+        if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
+        if (keys.a) camera.position.addScaledVector(right, -playerSpeed);
+        if (keys.d) camera.position.addScaledVector(right, playerSpeed);
+        if (keys.q) camera.position.y += playerSpeed;
+        if (keys.e) camera.position.y -= playerSpeed;
+    }
 
     renderer.render(scene, camera);
 }
