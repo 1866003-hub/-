@@ -3,12 +3,25 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // 青空
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-// プレイヤーの初期位置（目の高さ）
+// プレイヤーの初期位置（3x3のブロックの手前に配置）
 camera.position.set(1.5, 1.6, 5); 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+
+// 【新機能】画面の真ん中にマイクラ風の「＋」マークを表示する（CSSで作成）
+const crosshair = document.createElement('div');
+crosshair.style.position = 'absolute';
+crosshair.style.top = '50%';
+crosshair.style.left = '50%';
+crosshair.style.width = '10px';
+crosshair.style.height = '10px';
+crosshair.style.background = 'white';
+crosshair.style.transform = 'translate(-50%, -50%)';
+crosshair.style.borderRadius = '50%'; // 丸い点にします
+crosshair.style.pointerEvents = 'none'; // クリックの邪魔をしない設定
+document.body.appendChild(crosshair);
 
 // 2. ライト
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
@@ -51,37 +64,38 @@ for (let x = 0; x < SIZE; x++) {
     }
 }
 
-// 5. 【新機能】マイクラ風の一人称操作（Pointer Lock）
-// 画面をクリックすると、マウスの矢印が消えてゲーム画面にロックされます
+// 5. 操作設定（Pointer Lock）
 window.addEventListener('click', () => {
     if (document.pointerLockElement !== renderer.domElement) {
         renderer.domElement.requestPointerLock();
     }
 });
 
-// マウスを動かしたときに、カメラをキョロキョロ動かす
-let moveX = 0;
-let moveY = 0;
+// マウス移動で視点を動かす（少し滑らかに調整）
 document.addEventListener('mousemove', (event) => {
     if (document.pointerLockElement === renderer.domElement) {
         camera.rotation.y -= event.movementX * 0.002;
         camera.rotation.x -= event.movementY * 0.002;
-        // 真上や真下を向きすぎないように制限
         camera.rotation.x = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, camera.rotation.x));
     }
 });
-camera.rotation.order = "YXZ"; // 首振りのバグを防ぐ設定
+camera.rotation.order = "YXZ";
 
-// キーボード移動の判定用
+// キーボード移動の判定（大文字・小文字どちらでも動くように修正）
 const keys = { w: false, a: false, s: false, d: false };
-window.addEventListener('keydown', (e) => { if(e.key in keys) keys[e.key] = true; });
-window.addEventListener('keyup', (e) => { if(e.key in keys) keys[e.key] = false; });
+window.addEventListener('keydown', (e) => { 
+    const key = e.key.toLowerCase();
+    if(key in keys) keys[key] = true; 
+});
+window.addEventListener('keyup', (e) => { 
+    const key = e.key.toLowerCase();
+    if(key in keys) keys[key] = false; 
+});
 
-// 6. 穴掘り（一人称なので、画面中央の「視線の先」にあるブロックを掘る）
+// 6. 穴掘り処理（画面中央の白い点に連動）
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(0, 0); // 常に画面中央
 
-// ロックされている状態でクリックしたら掘る
 document.addEventListener('mousedown', (e) => {
     if (document.pointerLockElement !== renderer.domElement) return;
 
@@ -91,11 +105,11 @@ document.addEventListener('mousedown', (e) => {
     if (intersects.length > 0) {
         const hitBlock = intersects[0].object;
         
-        // プレイヤーの手が届く距離（4マス以内）だけ掘れる
-        if (intersects[0].distance < 4) {
+        // 手が届く距離（5マス以内）
+        if (intersects[0].distance < 5) {
             if (hitBlock.name === "diamond") {
                 scene.remove(hitBlock);
-                document.exitPointerLock(); // ロック解除
+                document.exitPointerLock(); 
                 alert("💎✨ 相棒！ついに一人称視点でダイヤを掘り当てたぞ！ ✨💎");
             } else {
                 scene.remove(hitBlock);
@@ -106,19 +120,16 @@ document.addEventListener('mousedown', (e) => {
     }
 });
 
-// 7. 【新機能】重力と移動のループ処理
-let velocityY = 0; // 落下速度
-const gravity = 0.01; // 重力の強さ
-const playerSpeed = 0.05;
+// 7. 定期実行（重力と移動）
+const playerSpeed = 0.04;
 
 function animate() {
     requestAnimationFrame(animate);
 
-    // --- キーボード移動 ---
     if (document.pointerLockElement === renderer.domElement) {
-        // カメラの向いている方向を基準に前後に移動
+        // カメラの向きに合わせて進む方向を計算
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        forward.y = 0; // 宙に浮かないように
+        forward.y = 0; 
         forward.normalize();
 
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -131,16 +142,15 @@ function animate() {
         if (keys.d) camera.position.addScaledVector(right, playerSpeed);
     }
 
-    // --- 簡易的な重力と着地判定 ---
-    velocityY -= gravity; // 毎フレーム、下に落ちる力を加える
-    camera.position.y += velocityY;
-
-    // プレイヤーの足元の高さをチェック（ y = 0.5 の位置が草ブロックの表面の上 ）
-    if (camera.position.y < 1.6) { 
-        camera.position.y = 1.6; // 地面に固定
-        velocityY = 0; // 落下を止める
-    }
+    // 地面（高さ1.6マス）に固定
+    camera.position.y = 1.6;
 
     renderer.render(scene, camera);
 }
 animate();
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
