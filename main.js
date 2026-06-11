@@ -1,39 +1,3 @@
-// 1. 基本セットアップ
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // 青空
-
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-// 全体が見えるようにカメラを少し引く
-camera.position.set(5, 8, 12);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.target.set(5, 0, 5); // カメラの回転中心を地面の真ん中に
-
-// 2. ライト
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambientLight);
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-directionalLight.position.set(10, 20, 15);
-scene.add(directionalLight);
-
-// 3. 【激軽対策】InstancedMeshを使って100個のブロックを1発で描画する
-const WORLD_SIZE = 10; // 10 x 10 マス
-const maxBlocks = WORLD_SIZE * WORLD_SIZE;
-
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshLambertMaterial({ color: 0x556B2F }); // 草ブロックっぽい緑色
-
-// 大量配置用の特殊なメッシュ
-const blockCluster = new THREE.InstancedMesh(geometry, material, maxBlocks);
-scene.add(blockCluster);
-
-// ブロックの位置データを保存する配列（後で掘るために使う）
-const dummy = new THREE.Object3D();
-let blockCount = 0;
 
 for (let x = 0; x < WORLD_SIZE; x++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
