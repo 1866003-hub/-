@@ -3,42 +3,25 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // 青空
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(1.5, 1.6, 5); // プレイヤーの初期位置
+// プレイヤーの初期位置（ブロックのすぐ手前に立つ）
+camera.position.set(1.5, 1.6, 4.5); 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// --- 【バグ対策】スタートボタンと画面中央のドットをCSSで作る ---
-// 画面中央の白い丸（照準）
+// 画面中央の「＋」マーク（今回は最初からずっと表示！）
 const crosshair = document.createElement('div');
 crosshair.style.position = 'absolute';
 crosshair.style.top = '50%';
 crosshair.style.left = '50%';
-crosshair.style.width = '8px';
-crosshair.style.height = '8px';
+crosshair.style.width = '10px';
+crosshair.style.height = '10px';
 crosshair.style.background = 'white';
 crosshair.style.transform = 'translate(-50%, -50%)';
 crosshair.style.borderRadius = '50%';
 crosshair.style.pointerEvents = 'none';
-crosshair.style.display = 'none'; // 最初は隠しておく
 document.body.appendChild(crosshair);
-
-// デバッグ用：スタートボタン
-const startButton = document.createElement('button');
-startButton.innerHTML = '🎮 ゲームをスタートする';
-startButton.style.position = 'absolute';
-startButton.style.top = '50%';
-startButton.style.left = '50%';
-startButton.style.transform = 'translate(-50%, -50%)';
-startButton.style.padding = '15px 30px';
-startButton.style.fontSize = '20px';
-startButton.style.backgroundColor = '#556B2F';
-startButton.style.color = 'white';
-startButton.style.border = 'none';
-startButton.style.cursor = 'pointer';
-startButton.style.borderRadius = '5px';
-document.body.appendChild(startButton);
 
 // 2. ライト
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
@@ -81,31 +64,40 @@ for (let x = 0; x < SIZE; x++) {
     }
 }
 
-// 5. 【修正】ボタンクリックで確実にPointer Lockを発動させる
-startButton.addEventListener('click', () => {
-    renderer.domElement.requestPointerLock();
+// 5. 【バグ回避】ドラッグで視点を動かすシステム（ブラウザに怒られない！）
+let isDragging = false;
+let previousMousePosition = { x: 0, y: 0 };
+
+// カメラの回転角度を管理する変数
+let rotationY = 0;
+let rotationX = 0;
+
+window.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    previousMousePosition = { x: e.clientX, y: e.clientY };
 });
 
-// ロック状態の変化を監視してボタンを消し、照準を出す
-document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement === renderer.domElement) {
-        startButton.style.display = 'none';
-        crosshair.style.display = 'block';
-    } else {
-        startButton.style.display = 'block';
-        crosshair.style.display = 'none';
-    }
+window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const deltaX = e.clientX - previousMousePosition.x;
+    const deltaY = e.clientY - previousMousePosition.y;
+
+    rotationY -= deltaX * 0.005;
+    rotationX -= deltaY * 0.005;
+    
+    // 真上・真下を向きすぎない制限
+    rotationX = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, rotationX));
+
+    // カメラに角度を適用
+    camera.rotation.set(rotationX, rotationY, 0, "YXZ");
+
+    previousMousePosition = { x: e.clientX, y: e.clientY };
 });
 
-// マウス移動で視点を動かす
-document.addEventListener('mousemove', (event) => {
-    if (document.pointerLockElement === renderer.domElement) {
-        camera.rotation.y -= event.movementX * 0.002;
-        camera.rotation.x -= event.movementY * 0.002;
-        camera.rotation.x = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, camera.rotation.x));
-    }
+window.addEventListener('mouseup', () => {
+    isDragging = false;
 });
-camera.rotation.order = "YXZ";
 
 // キーボード移動の判定
 const keys = { w: false, a: false, s: false, d: false };
@@ -118,24 +110,23 @@ window.addEventListener('keyup', (e) => {
     if(key in keys) keys[key] = false; 
 });
 
-// 6. 穴掘り処理
+// 6. 穴掘り（画面中央の「＋」の先にあるブロックをダブルクリック、または長押し解除で掘る）
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(0, 0); // 常に画面中央
 
-document.addEventListener('mousedown', (e) => {
-    if (document.pointerLockElement !== renderer.domElement) return;
-
+// ドラッグ移動と「クリック（採掘）」を区別するため、クリックされたら判定
+window.addEventListener('click', (e) => {
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(allBlocks);
 
     if (intersects.length > 0) {
         const hitBlock = intersects[0].object;
         
+        // 目の前（距離5マス以内）のブロックなら掘れる
         if (intersects[0].distance < 5) {
             if (hitBlock.name === "diamond") {
                 scene.remove(hitBlock);
-                document.exitPointerLock(); 
-                alert("💎✨ 相棒！一人称視点でダイヤ発掘成功だ！ ✨💎");
+                alert("💎✨ 相棒！見事に一人称視点でダイヤを見つけたぞ！完全クリア！ ✨💎");
             } else {
                 scene.remove(hitBlock);
                 const index = allBlocks.indexOf(hitBlock);
@@ -145,26 +136,25 @@ document.addEventListener('mousedown', (e) => {
     }
 });
 
-// 7. 定期実行（移動ループ）
-const playerSpeed = 0.05;
+// 7. 移動の定期実行ループ
+const playerSpeed = 0.06;
 
 function animate() {
     requestAnimationFrame(animate);
 
-    if (document.pointerLockElement === renderer.domElement) {
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        forward.y = 0; 
-        forward.normalize();
+    // カメラの向いている水平方向を計算して移動
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    forward.y = 0; 
+    forward.normalize();
 
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-        right.y = 0;
-        right.normalize();
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    right.y = 0;
+    right.normalize();
 
-        if (keys.w) camera.position.addScaledVector(forward, playerSpeed);
-        if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
-        if (keys.a) camera.position.addScaledVector(right, -playerSpeed);
-        if (keys.d) camera.position.addScaledVector(right, playerSpeed);
-    }
+    if (keys.w) camera.position.addScaledVector(forward, playerSpeed);
+    if (keys.s) camera.position.addScaledVector(forward, -playerSpeed);
+    if (keys.a) camera.position.addScaledVector(right, -playerSpeed);
+    if (keys.d) camera.position.addScaledVector(right, playerSpeed);
 
     camera.position.y = 1.6; // プレイヤーの目の高さ固定
 
