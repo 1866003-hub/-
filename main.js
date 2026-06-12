@@ -121,7 +121,6 @@ function initGame() {
         inventoryMenu.innerHTML = html;
     }
 
-    // グローバル関数として登録（HTMLクリック用）
     window.moveItemToHotbar = function(id) {
         let index = hotbarSlots.indexOf(null);
         if (index === -1) index = selectedSlot;
@@ -146,13 +145,13 @@ function initGame() {
         }
     }
 
-    // 5. ワールド生成エンジン
+    // 5. ワールド生成エンジン（描画距離を15に変更）
     const worldData = {}; 
     const instancedMeshes = {};
-    const RADIUS = 6; 
+    const RADIUS = 15; // 👈 ここを15に広げました！
 
     Object.keys(mats).forEach(type => {
-        const mesh = new THREE.InstancedMesh(geometry, mats[type], 5000);
+        const mesh = new THREE.InstancedMesh(geometry, mats[type], 12000); // 描画数上限もアップ
         mesh.count = 0;
         scene.add(mesh);
         instancedMeshes[type] = mesh;
@@ -190,10 +189,12 @@ function initGame() {
                     const type = worldData[`${x},${y},${z}`];
                     if (type && instancedMeshes[type]) {
                         const mesh = instancedMeshes[type];
-                        dummy.position.set(x, y, z);
-                        dummy.updateMatrix();
-                        mesh.setMatrixAt(mesh.count, dummy.matrix);
-                        mesh.count++;
+                        if (mesh.count < 12000) {
+                            dummy.position.set(x, y, z);
+                            dummy.updateMatrix();
+                            mesh.setMatrixAt(mesh.count, dummy.matrix);
+                            mesh.count++;
+                        }
                     }
                 }
             }
@@ -224,6 +225,17 @@ function initGame() {
 
     const keys = { w: false, a: false, s: false, d: false };
     window.addEventListener('keydown', (e) => { 
+        if(e.key.toLowerCase() === 'e') {
+            isScreenOpen = !isScreenOpen;
+            inventoryMenu.style.display = isScreenOpen ? 'block' : 'none';
+            if(isScreenOpen) renderInventoryMenu();
+            isDragging = false; return;
+        }
+        if(["1","2","3","4","5","6","7","8","9"].includes(e.key)) { selectedSlot = parseInt(e.key) - 1; updateGameUI(); return; }
+        if(e.key === ' ' || e.code === 'Space') { if (isGrounded) { velocityY = JUMP_FORCE; isGrounded = false; } return; }
+        const key = e.key.toLowerCase(); if(key in keys) keys[key] = true; 
+    });
+    window.addEventListener('keydown', (e) => {
         if(e.key.toLowerCase() === 'e') {
             isScreenOpen = !isScreenOpen;
             inventoryMenu.style.display = isScreenOpen ? 'block' : 'none';
