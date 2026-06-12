@@ -3,22 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Craft - Diamond Goal</title>
+    <title>My Diamond Craft</title>
     <style>
-        body { margin: 0; overflow: hidden; }
-        canvas { display: block; }
-        #crosshair {
-            position: absolute; top: 50%; left: 50%;
-            width: 10px; height: 10px;
-            transform: translate(-50%, -50%);
-            color: white; font-size: 20px; user-select: none; pointer-events: none;
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        /* 🎮 スタート画面のデザイン */
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('https://images.unsplash.com/photo-1607988795691-3d0147b43231?q=80&w=1000') no-repeat center center;
+            background-size: cover;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+        #gameTitle {
+            font-size: 48px;
+            color: #FFF;
+            font-weight: bold;
+            text-shadow: 3px 3px 0px #333, -3px -3px 0px #333, 3px -3px 0px #333, -3px 3px 0px #333;
+            margin-bottom: 30px;
+            letter-spacing: 2px;
+        }
+        #startBtn {
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            background-color: #5b8731;
+            border: 3px solid #FFF;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: 0px 5px 0px #3b591d, 0px 10px 20px rgba(0,0,0,0.4);
+            transition: all 0.1s ease;
+        }
+        #startBtn:hover {
+            background-color: #6ba139;
+            transform: translateY(-2px);
+            box-shadow: 0px 7px 0px #3b591d, 0px 10px 20px rgba(0,0,0,0.4);
+        }
+        #startBtn:active {
+            transform: translateY(5px);
+            box-shadow: 0px 0px 0px #3b591d;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-    <div id="crosshair">+</div>
+
+    <div id="startScreen">
+        <div id="gameTitle">💎 MY DIAMOND CRAFT 💎</div>
+        <button id="startBtn">ゲームスタート</button>
+    </div>
+
     <script src="main.js"></script>
 </body>
 </html>
