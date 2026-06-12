@@ -1,16 +1,13 @@
 function initGame() {
-    document.body.innerHTML = '';
-    document.body.style.margin = '0';
-    document.body.style.overflow = 'hidden';
-
     // 1. シーンとカメラの基本設定
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB); 
+    scene.fog = new THREE.FogExp2(0x87CEEB, 0.03); // 霧を少し濃くして先を自然に隠す（超軽量化）
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
     camera.position.set(25, 12, 25); 
 
-    const renderer = new THREE.WebGLRenderer({ antialias: false }); 
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" }); 
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
@@ -31,36 +28,31 @@ function initGame() {
     const infoText = document.createElement('div');
     infoText.style.position = 'absolute'; infoText.style.top = '15px'; infoText.style.width = '100%'; infoText.style.textAlign = 'center';
     infoText.style.color = 'white'; infoText.style.fontSize = '15px'; infoText.style.fontFamily = 'sans-serif'; infoText.style.textShadow = '1px 1px 3px black';
-    infoText.innerHTML = '🎒【E】キーでインベントリ開閉 | マウスホイールでスロット選択';
+    infoText.innerHTML = '🎒【E】キーでインベントリ開閉 | マウスホイールでスロット選択 | ⚔️左クリックで攻撃';
     document.body.appendChild(infoText);
 
     // 2. ライト（光）の設定
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); scene.add(ambientLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.3); dirLight.position.set(10, 40, 20); scene.add(dirLight);
 
-    // ブロックの色設定
+    // ブロック・モブの色設定
     function cMat(hexColor) { 
-        return new THREE.MeshStandardMaterial({ color: hexColor, roughness: 0.8 }); 
+        return new THREE.MeshBasicMaterial({ color: hexColor }); // 影の計算を無くして超軽量化（MeshStandard -> MeshBasic）
     }
 
     const mats = {
-        grass: cMat(0x5b8731),
-        log: cMat(0x675131),
-        dirt: cMat(0x866043), 
-        stone: cMat(0x737373), 
-        iron: cMat(0xd8af93), 
-        diamond: cMat(0x4dedf2),
-        bedrock: cMat(0x222222), 
-        leaves: cMat(0x245116),
-        furnace: cMat(0x3a3a3a), 
-        sand: cMat(0xddcc99), 
-        water: new THREE.MeshStandardMaterial({ color: 0x3377FF, transparent: true, opacity: 0.6 }),
-        chest: cMat(0x967140)
+        grass: cMat(0x5b8731), log: cMat(0x675131), dirt: cMat(0x866043), 
+        stone: cMat(0x737373), iron: cMat(0xd8af93), diamond: cMat(0x4dedf2),
+        bedrock: cMat(0x222222), leaves: cMat(0x245116), furnace: cMat(0x3a3a3a), 
+        sand: cMat(0xddcc99), water: new THREE.MeshBasicMaterial({ color: 0x3377FF, transparent: true, opacity: 0.6 }),
+        chest: cMat(0x967140),
+        pig: cMat(0xFFB6C1),     
+        zombie: cMat(0x556B2F)   
     };
 
     const geometry = new THREE.BoxGeometry(1, 1, 1);
 
-    // プレイヤーの手（画面右下に表示される四角）
+    // プレイヤーの手
     const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.8), cMat(0xffdbac)); 
     handMesh.position.set(0.45, -0.35, -0.7); camera.add(handMesh); scene.add(camera);
 
@@ -100,7 +92,7 @@ function initGame() {
     document.body.appendChild(inventoryMenu);
 
     function renderInventoryMenu() {
-        let html = `<h3 style="margin-top:0; text-align:center; color:#FFD700;">🎒 インベントリ（クリックでスロットへ移動）</h3>`;
+        let html = `<h3 style="margin-top:0; text-align:center; color:#FFD700;">🎒 インベントリ</h3>`;
         html += `<div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; margin-bottom:15px;">`;
         ITEM_IDS.forEach(id => {
             const count = inventory[id] || 0;
@@ -145,25 +137,47 @@ function initGame() {
         }
     }
 
-    // 5. ワールド生成エンジン（描画距離を15に変更）
+    // 5. ワールド生成エンジン（Chromebook用にRADIUS=12に調整）
     const worldData = {}; 
     const instancedMeshes = {};
-    const RADIUS = 15; // 👈 ここを15に広げました！
+    const RADIUS = 12; // 👈 軽くてしっかり遠くまで見える12に調整
+    const mobsArray = []; 
 
     Object.keys(mats).forEach(type => {
-        const mesh = new THREE.InstancedMesh(geometry, mats[type], 12000); // 描画数上限もアップ
+        if (type === 'pig' || type === 'zombie') return; 
+        const mesh = new THREE.InstancedMesh(geometry, mats[type], 15000); 
         mesh.count = 0;
         scene.add(mesh);
         instancedMeshes[type] = mesh;
     });
 
+    function spawnMob(type, x, y, z) {
+        if (mobsArray.length > 10) return; // モブの最大数を10匹にして軽量化
+        const mobGroup = new THREE.Group();
+        const isPig = (type === "pig");
+        const bodyMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.6, isPig ? 0.6 : 0.8, isPig ? 0.9 : 0.4), 
+            mats[type]
+        );
+        bodyMesh.position.y = isPig ? 0.4 : 0.7;
+        mobGroup.add(bodyMesh);
+
+        mobGroup.position.set(x, y, z);
+        mobGroup.userData = { type: type, hp: isPig ? 3 : 6, walkTimer: 0, dirX: 0, dirZ: 0 };
+        scene.add(mobGroup);
+        mobsArray.push(mobGroup);
+    }
+
+    // 🌲 地形と木の生成ロジック
     function generateWorldDataAt(x, z) {
         if (worldData[`${x},0,${z}`] !== undefined) return;
-        const surfaceY = 5 + Math.floor(Math.sin(x * 0.1) * Math.cos(z * 0.1) * 2);
         
-        for (let y = surfaceY; y >= -5; y--) {
+        // サイン・コサインの計算を軽くして地形のデコボコをはっきりさせる
+        const surfaceY = 4 + Math.floor(Math.sin(x * 0.15) * Math.cos(z * 0.15) * 3);
+        
+        for (let y = surfaceY; y >= -4; y--) {
             let type = "stone";
-            if (y === -5) type = "bedrock";
+            if (y === -4) type = "bedrock";
             else if (y === surfaceY) type = "grass";
             else if (y < surfaceY && y > surfaceY - 3) type = "dirt";
             else {
@@ -171,6 +185,30 @@ function initGame() {
                 else if (Math.random() < 0.05) type = "iron";
             }
             worldData[`${x},${y},${z}`] = type;
+        }
+
+        // 🌲 一定確率で木を生成
+        if (Math.random() < 0.015 && worldData[`${x},${surfaceY},${z}`] === "grass") {
+            // 幹を4ブロック積み上げる
+            for (let ty = 1; ty <= 4; ty++) {
+                worldData[`${x},${surfaceY + ty},${z}`] = "log";
+            }
+            // 葉っぱを乗せる
+            for (let lx = -1; lx <= 1; lx++) {
+                for (let lz = -1; lz <= 1; lz++) {
+                    for (let ly = 3; ly <= 5; ly++) {
+                        if (!worldData[`${x+lx},${surfaceY+ly},${z+lz}`]) {
+                            worldData[`${x+lx},${surfaceY+ly},${z+lz}`] = "leaves";
+                        }
+                    }
+                }
+            }
+        }
+
+        // 🎲 モブをスポーン
+        if (Math.random() < 0.01) {
+            const mobType = Math.random() > 0.4 ? "pig" : "zombie";
+            spawnMob(mobType, x, surfaceY + 1, z);
         }
     }
 
@@ -180,7 +218,7 @@ function initGame() {
         const py = Math.floor(camera.position.y);
         const pz = Math.floor(camera.position.z);
         
-        Object.keys(instancedMeshes).forEach(type => { instancedMeshes[type].count = 0; });
+        Object.keys(instancedMeshes).forEach(type => { if(instancedMeshes[type]) instancedMeshes[type].count = 0; });
 
         for (let x = px - RADIUS; x <= px + RADIUS; x++) {
             for (let z = pz - RADIUS; z <= pz + RADIUS; z++) {
@@ -189,7 +227,7 @@ function initGame() {
                     const type = worldData[`${x},${y},${z}`];
                     if (type && instancedMeshes[type]) {
                         const mesh = instancedMeshes[type];
-                        if (mesh.count < 12000) {
+                        if (mesh.count < 15000) {
                             dummy.position.set(x, y, z);
                             dummy.updateMatrix();
                             mesh.setMatrixAt(mesh.count, dummy.matrix);
@@ -199,18 +237,18 @@ function initGame() {
                 }
             }
         }
-        Object.keys(instancedMeshes).forEach(type => { instancedMeshes[type].instanceMatrix.needsUpdate = true; });
+        Object.keys(instancedMeshes).forEach(type => { if(instancedMeshes[type]) instancedMeshes[type].instanceMatrix.needsUpdate = true; });
     }
 
-    // 6. 操作（マウス・キーボード）の設定
+    // 6. 操作の設定
     let isDragging = false; let previousMousePosition = { x: 0, y: 0 };
     let rotationY = 0; let rotationX = 0;
 
     window.addEventListener('mousedown', (e) => { if(isScreenOpen) return; isDragging = true; previousMousePosition = { x: e.clientX, y: e.clientY }; });
     window.addEventListener('mousemove', (e) => {
         if (!isDragging || isScreenOpen) return;
-        rotationY -= (e.clientX - previousMousePosition.x) * 0.01;
-        rotationX -= (e.clientY - previousMousePosition.y) * 0.01;
+        rotationY -= (e.clientX - previousMousePosition.x) * 0.007; // カメラの感度を少しなめらかに
+        rotationX -= (e.clientY - previousMousePosition.y) * 0.007;
         rotationX = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, rotationX));
         camera.rotation.set(rotationX, rotationY, 0, "YXZ");
         previousMousePosition = { x: e.clientX, y: e.clientY };
@@ -235,24 +273,32 @@ function initGame() {
         if(e.key === ' ' || e.code === 'Space') { if (isGrounded) { velocityY = JUMP_FORCE; isGrounded = false; } return; }
         const key = e.key.toLowerCase(); if(key in keys) keys[key] = true; 
     });
-    window.addEventListener('keydown', (e) => {
-        if(e.key.toLowerCase() === 'e') {
-            isScreenOpen = !isScreenOpen;
-            inventoryMenu.style.display = isScreenOpen ? 'block' : 'none';
-            if(isScreenOpen) renderInventoryMenu();
-            isDragging = false; return;
-        }
-        if(["1","2","3","4","5","6","7","8","9"].includes(e.key)) { selectedSlot = parseInt(e.key) - 1; updateGameUI(); return; }
-        if(e.key === ' ' || e.code === 'Space') { if (isGrounded) { velocityY = JUMP_FORCE; isGrounded = false; } return; }
-        const key = e.key.toLowerCase(); if(key in keys) keys[key] = true; 
-    });
     window.addEventListener('keyup', (e) => { const key = e.key.toLowerCase(); if(key in keys) keys[key] = false; });
 
-    // 7. ブロックの破壊と設置
+    // 7. ブロックの破壊・設置＆モブ攻撃
     const raycaster = new THREE.Raycaster(); const screenCenter = new THREE.Vector2(0, 0);
     window.addEventListener('pointerdown', (e) => {
         if(isScreenOpen) return;
         raycaster.setFromCamera(screenCenter, camera);
+
+        if (e.button === 0) {
+            const mobIntersects = raycaster.intersectObjects(mobsArray, true);
+            if (mobIntersects.length > 0 && mobIntersects[0].distance <= 5) {
+                let hitMob = mobIntersects[0].object;
+                while (hitMob.parent && hitMob.parent.type !== "Scene") { hitMob = hitMob.parent; }
+                
+                hitMob.userData.hp -= 2; 
+                hitMob.position.y += 0.5; 
+                
+                if (hitMob.userData.hp <= 0) {
+                    scene.remove(hitMob);
+                    mobsArray.splice(mobsArray.indexOf(hitMob), 1);
+                    alert(`💥 モブを倒した！`);
+                }
+                return;
+            }
+        }
+
         const activeMeshes = Object.values(instancedMeshes);
         const intersects = raycaster.intersectObjects(activeMeshes);
         
@@ -265,14 +311,14 @@ function initGame() {
             const bx = Math.round(pos.x); const by = Math.round(pos.y); const bz = Math.round(pos.z);
             const blockKey = `${bx},${by},${bz}`;
 
-            if (e.button === 0) { // 左クリックで壊す
+            if (e.button === 0) { 
                 if (worldData[blockKey] && worldData[blockKey] !== "bedrock") {
                     const droppedType = worldData[blockKey];
                     inventory[droppedType] = (inventory[droppedType] || 0) + 1;
                     delete worldData[blockKey];
                     updateChunks(); updateGameUI();
                 }
-            } else if (e.button === 2) { // 右クリックで置く
+            } else if (e.button === 2) { 
                 const currentBuildType = hotbarSlots[selectedSlot];
                 if (currentBuildType) {
                     const normal = hit.face.normal.clone();
@@ -280,8 +326,14 @@ function initGame() {
                     const ny = by + Math.round(normal.y);
                     const nz = bz + Math.round(normal.z);
                     if (!worldData[`${nx},${ny},${nz}`]) {
-                        worldData[`${nx},${ny},${nz}`] = currentBuildType;
-                        updateChunks(); updateGameUI();
+                        // プレイヤーの足元に重なる場合は設置しない判定（めり込みバグ対策）
+                        const pX = Math.floor(camera.position.x + 0.5);
+                        const pZ = Math.floor(camera.position.z + 0.5);
+                        const pY = Math.floor(camera.position.y - PLAYER_HEIGHT + 0.5);
+                        if (!(nx === pX && nz === pZ && (ny === pY || ny === pY + 1))) {
+                            worldData[`${nx},${ny},${nz}`] = currentBuildType;
+                            updateChunks(); updateGameUI();
+                        }
                     }
                 }
             }
@@ -298,23 +350,72 @@ function initGame() {
         if (!isScreenOpen) {
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
             const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
-            if (keys.w) camera.position.addScaledVector(forward, 0.15);
-            if (keys.s) camera.position.addScaledVector(forward, -0.15);
-            if (keys.a) camera.position.addScaledVector(right, -0.15);
-            if (keys.d) camera.position.addScaledVector(right, 0.15);
+            if (keys.w) camera.position.addScaledVector(forward, 0.12);
+            if (keys.s) camera.position.addScaledVector(forward, -0.12);
+            if (keys.a) camera.position.addScaledVector(right, -0.12);
+            if (keys.d) camera.position.addScaledVector(right, 0.12);
         }
         
-        // 重力と衝突判定
+        // モブの移動
+        mobsArray.forEach(mob => {
+            mob.userData.walkTimer += 0.05;
+            const speed = mob.userData.type === 'pig' ? 0.015 : 0.025; 
+            
+            if (mob.userData.type === "pig") {
+                if (mob.userData.walkTimer > 5) {
+                    mob.userData.walkTimer = 0;
+                    mob.userData.dirX = (Math.random() - 0.5) * speed;
+                    mob.userData.dirZ = (Math.random() - 0.5) * speed;
+                }
+                mob.position.x += mob.userData.dirX;
+                mob.position.z += mob.userData.dirZ;
+            } else {
+                const dx = camera.position.x - mob.position.x;
+                const dz = camera.position.z - mob.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist < 15) { 
+                    mob.position.x += (dx / dist) * speed;
+                    mob.position.z += (dz / dist) * speed;
+                }
+            }
+
+            const mx = Math.round(mob.position.x);
+            const mz = Math.round(mob.position.z);
+            let mobGroundY = 4;
+            for (let my = 10; my >= -4; my--) {
+                if (worldData[`${mx},${my},${mz}`]) { mobGroundY = my; break; }
+            }
+            mob.position.y = mobGroundY + 0.5;
+        });
+
+        // プレイヤーの重力と段差（衝突）判定の厳密化
         velocityY -= GRAVITY; camera.position.y += velocityY;
-        const pX = Math.floor(camera.position.x + 0.5); const pZ = Math.floor(camera.position.z + 0.5);
+        
+        const pX = Math.round(camera.position.x); 
+        const pZ = Math.round(camera.position.z);
         let highestGroundY = -99;
-        for (let checkY = Math.floor(camera.position.y); checkY >= -6; checkY--) {
-            if (worldData[`${pX},${checkY},${pZ}`]) { highestGroundY = checkY; break; }
+        
+        // 足元のブロックを正しく探す
+        for (let checkY = Math.floor(camera.position.y); checkY >= -5; checkY--) {
+            if (worldData[`${pX},${checkY},${pZ}`]) { 
+                highestGroundY = checkY; 
+                break; 
+            }
         }
+        
         const groundThreshold = highestGroundY + 0.5 + PLAYER_HEIGHT;
-        if (camera.position.y <= groundThreshold) { camera.position.y = groundThreshold; velocityY = 0; isGrounded = true; } else { isGrounded = false; }
+        
+        // 1段勝手に登るバグを防止する厳密な接地判定
+        if (camera.position.y <= groundThreshold) { 
+            camera.position.y = groundThreshold; 
+            velocityY = 0; 
+            isGrounded = true; 
+        } else { 
+            isGrounded = false; 
+        }
 
         updateChunks();
+        updateGameUI(); // 座標UIの更新タイミングをループ内に変更してリアルタイム化
         renderer.render(scene, camera);
     }
     animate();
@@ -322,4 +423,20 @@ function initGame() {
     window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 }
 
-const checkThreeLoaded = setInterval(() => { if (typeof THREE !== 'undefined') { clearInterval(checkThreeLoaded); initGame(); } }, 50);
+function setupStartButton() {
+    const startBtn = document.getElementById('startBtn');
+    if (startBtn) {
+        startBtn.onclick = () => {
+            const screen = document.getElementById('startScreen');
+            if (screen) screen.style.display = 'none'; 
+            initGame(); 
+        };
+    }
+}
+
+const checkThreeLoaded = setInterval(() => { 
+    if (typeof THREE !== 'undefined' && document.getElementById('startBtn')) { 
+        clearInterval(checkThreeLoaded); 
+        setupStartButton();
+    } 
+}, 50);
